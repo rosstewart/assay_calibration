@@ -230,7 +230,7 @@ class Scoreset:
     def filter_by_consequence(self, **kwargs):
         self.missense_only = kwargs.get("missense_only", False)
         self.detects_splice = (
-            self.dataframe.loc[:, "splice_measure"].unique()[0] == "Yes"
+            self.dataframe.loc[:, "splice_measure"].unique()[0] == "Yes"  # type: ignore
         )
         self.dataframe = self.dataframe[self.dataframe.Flag != "*"]
         if not self.detects_splice:
@@ -402,6 +402,9 @@ class Variant:
             "Likely pathogenic",
             "Pathogenic/Likely pathogenic",
         }
+        self.is_vus = high_quality and self.clinvar_sig in {
+            "Uncertain significance",
+        }
 
     def parse_gnomAD_MAF(self):
         """
@@ -517,7 +520,7 @@ def csv_to_vcf(input_filepath, output_filepath):
 """
         )
         vcf_file.write("#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n")
-        df = df.sort_values(by=["Chrom", "hg38_start"])
+        df = df.sort_values(by=["Chrom", "hg38_start"])  # type: ignore
         # Write VCF rows
         for _, row in tqdm(df.iterrows(), total=len(df)):
             vcf_file.write(
