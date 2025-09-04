@@ -3,7 +3,7 @@ from pathlib import Path
 import numpy as np
 from scipy import stats
 
-sys.path.append(str(Path(__file__).resolve().parents[2]))
+sys.path.append(str(Path(__file__).resolve().parents[1]))
 from src.assay_calibration.data_utils.dataset import (
     PillarProjectDataframe,
     Scoreset,
@@ -18,7 +18,7 @@ def test_fit():
     ds = Scoreset(df.dataframe[df.dataframe.Dataset == "BRCA1_Adamovich_2022_HDR"])
     print(ds)
     fit = Fit(ds)
-    fit.run(core_limit=1, num_fits=1, component_range=[2, 3])
+    fit.run(core_limit=1, num_fits=1, component_range=[2, 3], bootstrap=False)
     result = fit.to_dict()
     print(json.dumps(result, indent=4))
 

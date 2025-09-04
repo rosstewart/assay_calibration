@@ -128,6 +128,8 @@ class Fit:
             The number of fits to run
         core_limit -- int (default -1)
             The number of cores to use for parallel processing
+        bootstrap -- bool (default True)
+            Whether to use bootstrap sampling
         """
         NUM_FITS = kwargs.get("num_fits", 100)
         observations = self.scoreset.scores
@@ -140,11 +142,15 @@ class Fit:
         observations = observations[include]
         sample_assignments = sample_assignments[include]
         print(f"sample counts: {sample_assignments.sum(0)}")
-        train_indices, val_indices = sample_specific_bootstrap(sample_assignments)
-        train_observations = observations[train_indices]
-        train_sample_assignments = sample_assignments[train_indices]
+        train_indices = np.arange(len(observations))
+        val_indices = np.array([], dtype=int)
+        if kwargs.get("bootstrap", True):
+            train_indices, val_indices = sample_specific_bootstrap(sample_assignments)
         val_observations = observations[val_indices]
         val_sample_assignments = sample_assignments[val_indices]
+        train_observations = observations[train_indices]
+        train_sample_assignments = sample_assignments[train_indices]
+
         core_limit = kwargs.get("core_limit", -1)
         if core_limit == 1:
             print(
@@ -174,26 +180,29 @@ class Fit:
                 for i in range(NUM_FITS)
                 for num_components in component_range
             )
-        # models = sorted(models,key=lambda x: x._log_likelihoods[-1],reverse=True)
         models = [
             m
             for m in models
             if isinstance(m, MulticomponentCalibrationModel)
             and not np.isinf(m._log_likelihoods[-1])
         ]
+        models = sorted(models, key=lambda m: m._log_likelihoods[-1], reverse=True)
         if not len(models):
             raise ValueError("No models succeeded in fitting")
         else:
             print(f"Successfully fit {len(models)} models")
-        val_lls = [
-            m.get_log_likelihood(val_observations, val_sample_assignments)
-            for m in models
-        ]
-        best_idx = np.nanargmax(val_lls)
-        best_fit = models[best_idx]
-        print(f"Best fit: {best_fit.get_params()}")
-        if np.isinf(val_lls[best_idx]):
-            raise ValueError("Failed to fit model")
+        if kwargs.get("bootstrap", True):
+            val_lls = [
+                m.get_log_likelihood(val_observations, val_sample_assignments)
+                for m in models
+            ]
+            best_idx = np.nanargmax(val_lls)
+            best_fit = models[best_idx]
+            print(f"Best fit: {best_fit.get_params()}")
+            if np.isinf(val_lls[best_idx]):
+                raise ValueError("Failed to fit model")
+        else:
+            best_fit = models[0]
         self.model = best_fit
         self._fit_eval()
 
@@ -221,7 +230,7 @@ class Fit:
                     self.fit_result["component_params"], weights
                 )
             ]
-        )
+        )  # type: ignore
 
     def _fit_eval(self):
         """
