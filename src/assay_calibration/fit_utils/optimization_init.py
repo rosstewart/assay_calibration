@@ -1,7 +1,6 @@
 import numpy as np
 import scipy.stats as stats
 import scipy.optimize as opt
-import matplotlib.pyplot as plt
 from typing import Tuple, List
 
 # Compute log PDF of skew normal distribution
@@ -139,23 +138,3 @@ if __name__ == "__main__":
     print(f"Optimized g1: {g1}")
     print(f"Optimized h1: {h1}")
     print(f"Density ratio monotonically decreasing: {result_is_monotonic}")
-
-    # Plot Results
-    fig, ax = plt.subplots(1, 2, figsize=(16, 5), sharey=True, sharex=True)
-    x_vals = np.linspace(-5, 5, 200)
-    f0_pdf = stats.skewnorm.pdf(x_vals, f0[0], loc=f0[1], scale=f0[2])
-    f1_pdf = stats.skewnorm.pdf(x_vals, f1[0], loc=f1[1], scale=f1[2])
-    g0_pdf = stats.skewnorm.pdf(x_vals, g0[0], loc=g0[1], scale=g0[2])
-    g1_pdf = stats.skewnorm.pdf(x_vals, g1[0], loc=g1[1], scale=g1[2])
-    h0_pdf = stats.skewnorm.pdf(x_vals, h0[0], loc=h0[1], scale=h0[2])
-    h1_pdf = stats.skewnorm.pdf(x_vals, h1[0], loc=h1[1], scale=h1[2])
-    ax[0].plot(x_vals, f0_pdf, label="f0 (Initial)", color="blue", linestyle="dashed")
-    ax[0].plot(x_vals, g0_pdf, label="g0 (Initial)", color="orange", linestyle="dashed")
-    ax[0].plot(x_vals, h0_pdf, label="h0 (Initial)", color="green", linestyle="dashed")
-    ax[1].plot(x_vals, f1_pdf, label="f1 (Optimized)", color="blue", alpha=0.5)
-    ax[1].plot(x_vals, g1_pdf, label="g1 (Optimized)", color="orange", alpha=0.5)
-    ax[1].plot(x_vals, h1_pdf, label="h1 (Optimized)", color="green", alpha=0.5)
-    ax[0].legend()
-    ax[1].legend()
-    plt.suptitle("Optimized Skew Normal Distributions (Density Ratio Decreasing)")
-    plt.show()

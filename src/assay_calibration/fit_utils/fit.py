@@ -135,13 +135,16 @@ class Fit:
         observations = self.scoreset.scores
         observations = pd.to_numeric(observations, errors="coerce")
         sample_assignments = self.scoreset.sample_assignments
-        print(f"sample counts: {sample_assignments.sum(0)}")
+        if kwargs.get("verbose", False):
+            print(f"sample counts: {sample_assignments.sum(0)}")
         sample_assignments = makeOneHot(sample_assignments)
-        print(f"sample counts: {sample_assignments.sum(0)}")
+        if kwargs.get("verbose", False):
+            print(f"sample counts: {sample_assignments.sum(0)}")
         include = sample_assignments.any(axis=1) & ~np.isnan(observations)
         observations = observations[include]
         sample_assignments = sample_assignments[include]
-        print(f"sample counts: {sample_assignments.sum(0)}")
+        if kwargs.get("verbose", False):
+            print(f"sample counts: {sample_assignments.sum(0)}")
         train_indices = np.arange(len(observations))
         val_indices = np.array([], dtype=int)
         if kwargs.get("bootstrap", True):
@@ -153,9 +156,10 @@ class Fit:
 
         core_limit = kwargs.get("core_limit", -1)
         if core_limit == 1:
-            print(
-                f"Running {NUM_FITS} fits for each of {len(component_range)} components sequentially"
-            )
+            if kwargs.get("verbose", False):
+                print(
+                    f"Running {NUM_FITS} fits for each of {len(component_range)} components sequentially"
+                )
             models = [
                 tryToFit(
                     train_observations,
@@ -167,9 +171,10 @@ class Fit:
                 for num_components in component_range
             ]
         else:
-            print(
-                f"Running {NUM_FITS} fits for each of {len(component_range)} components with {core_limit} cores"
-            )
+            if kwargs.get("verbose", False):
+                print(
+                    f"Running {NUM_FITS} fits for each of {len(component_range)} components with {core_limit} cores"
+                )
             models = Parallel(n_jobs=core_limit, verbose=10)(
                 delayed(tryToFit)(
                     train_observations,
@@ -190,7 +195,8 @@ class Fit:
         if not len(models):
             raise ValueError("No models succeeded in fitting")
         else:
-            print(f"Successfully fit {len(models)} models")
+            if kwargs.get("verbose", False):
+                print(f"Successfully fit {len(models)} models")
         if kwargs.get("bootstrap", True):
             val_lls = [
                 m.get_log_likelihood(val_observations, val_sample_assignments)
@@ -198,7 +204,8 @@ class Fit:
             ]
             best_idx = np.nanargmax(val_lls)
             best_fit = models[best_idx]
-            print(f"Best fit: {best_fit.get_params()}")
+            if kwargs.get("verbose", False):
+                print(f"Best fit: {best_fit.get_params()}")
             if np.isinf(val_lls[best_idx]):
                 raise ValueError("Failed to fit model")
         else:
