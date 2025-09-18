@@ -845,21 +845,21 @@ class MulticomponentCalibrationModel:
         bool
             True if the joint density ratio of any pair of adjacent skew normal components is non-monotonic, False otherwise.
         """
-        uscores = np.unique(scores)
-        uscores.sort()
-        if self.score_min is not None:
-            if self.score_min < uscores[0]:
-                uscores = np.insert(uscores, 0, self.score_min)
-            uscores = uscores[uscores >= self.score_min]
-        if self.score_max is not None:
-            if self.score_max > uscores[-1]:
-                uscores = np.append(
-                    uscores,
-                    [
-                        self.score_max,
-                    ],
-                )
-            uscores = uscores[uscores <= self.score_max]
+        # uscores = np.unique(scores)
+        # uscores.sort()
+        # if self.score_min is not None:
+        #     if self.score_min < uscores[0]:
+        #         uscores = np.insert(uscores, 0, self.score_min)
+        #     uscores = uscores[uscores >= self.score_min]
+        # if self.score_max is not None:
+        #     if self.score_max > uscores[-1]:
+        #         uscores = np.append(
+        #             uscores,
+        #             [
+        #                 self.score_max,
+        #             ],
+        #         )
+        #     uscores = uscores[uscores <= self.score_max]
         for comp_i in range(self.num_components):
             if comp_i != self.num_components - 1:
                 # if comp_i is not the last component, check that the density ratio of comp_i to comp_i + 1 is monotonic
