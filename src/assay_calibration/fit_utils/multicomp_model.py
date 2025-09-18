@@ -77,10 +77,16 @@ class MulticomponentCalibrationModel:
             Tolerance for convergence in the log likelihood.
         - check_monotonic : bool (default True)
             If True, check for monotonicity between each pair of neighboring components
+        - score_min : float | int (default None)
+            Minimum score to consider when checking for monotonicity. If None, use the minimum score in `scores`.
+        - score_max : float | int (default None)
+            Maximum score to consider when checking for monotonicity. If None, use the maximum score in `scores`.
         """
         self._max_likelihood = -np.inf
         self.check_convergence = kwargs.pop("check_convergence", True)
         self.check_monotonic = kwargs.pop("check_monotonic", True)
+        self.score_min = kwargs.get("score_min", None)
+        self.score_max = kwargs.get("score_max", None)
         sampleIndicators = sampleIndicators.astype(bool)
         # Validate input data
         self.validate_inputs(scores, sampleIndicators)
@@ -787,14 +793,20 @@ class MulticomponentCalibrationModel:
             [self.skewness[i], self.locs[i], self.scales[i]]
             for i in range(self.num_components)
         ]
-        score_range = (scores.min(), scores.max())
+        smin = scores.min()
+        smax = scores.max()
+        if self.score_min is not None:
+            smin = self.score_min
+        if self.score_max is not None:
+            smax = self.score_max
+        score_range = (smin, smax)
         optimized_params = optimize_distributions(
             [tuple(param) for param in initialParmas], x_range=score_range
         )
         self.skewness = np.array([params[0] for params in optimized_params])
         self.locs = np.array([params[1] for params in optimized_params])
         self.scales = np.array([params[2] for params in optimized_params])
-        if self.any_components_violate_monotonicity(scores):
+        if self.any_components_violate_monotonicity(scores, **kwargs):
             if kwargs.get("verbose", False):
                 print("density constraint initialization failed.")
             return False
@@ -809,6 +821,13 @@ class MulticomponentCalibrationModel:
         - scores : numpy.array
             Assay scores.
 
+        Optional Parameters
+        -------------------
+        - score_min : float | int (default None)
+            Minimum score to consider when checking for monotonicity.
+        - score_max : float | int (default None)
+            Maximum score to consider when checking for monotonicity.
+
         Returns
         -------
         bool
@@ -816,6 +835,19 @@ class MulticomponentCalibrationModel:
         """
         uscores = np.unique(scores)
         uscores.sort()
+        if self.score_min is not None:
+            if self.score_min < uscores[0]:
+                uscores = np.insert(uscores, 0, self.score_min)
+            uscores = uscores[uscores >= self.score_min]
+        if self.score_max is not None:
+            if self.score_max > uscores[-1]:
+                uscores = np.append(
+                    uscores,
+                    [
+                        self.score_max,
+                    ],
+                )
+            uscores = uscores[uscores <= self.score_max]
         for comp_i, comp_j in zip(
             range(self.num_components - 1), range(1, self.num_components)
         ):
@@ -829,7 +861,7 @@ class MulticomponentCalibrationModel:
         return False
 
     @staticmethod
-    def parameters_violate_monotonicity(scores, params_i, params_j):
+    def parameters_violate_monotonicity(scores, params_i, params_j, **kwargs) -> bool:
         """
         Check whether the density ratio of component i to component j is monotonic.
 
@@ -844,11 +876,35 @@ class MulticomponentCalibrationModel:
         - params_j : List[float]
             Component parameters for component j (skewness, loc, scale).
 
+        Optional Parameters
+        -------------------
+        - score_min : float | int (default None)
+            Minimum score to consider when checking for monotonicity.
+        - score_max : float | int (default None)
+            Maximum score to consider when checking for monotonicity.
+
         Returns
         -------
         bool
             True if the density ratio of component i to component j is non-monotonic, False otherwise.
         """
+        smin = kwargs.get("score_min", None)
+        if smin is not None:
+            smin = float(smin)
+            if smin < scores[0]:
+                scores = np.insert(scores, 0, smin)
+            scores = scores[scores >= smin]
+        smax = kwargs.get("score_max", None)
+        if smax is not None:
+            smax = float(smax)
+            if smax > scores[-1]:
+                scores = np.append(
+                    scores,
+                    [
+                        smax,
+                    ],
+                )
+            scores = scores[scores <= smax]
         log_density_i = skewnorm.logpdf(scores, *params_i)
         log_density_j = skewnorm.logpdf(scores, *params_j)
         log_density_ratio = log_density_i - log_density_j
@@ -1368,12 +1424,16 @@ class MulticomponentCalibrationModel:
                 unique_scores,
                 previous_canonical_param_pair[self._current_component],
                 previous_canonical_param_pair[self._current_component + 1],
+                score_min=self.score_min,
+                score_max=self.score_max,
             )
         if self._current_component != 0:
             assert not MulticomponentCalibrationModel.parameters_violate_monotonicity(
                 unique_scores,
                 previous_canonical_param_pair[self._current_component - 1],
                 previous_canonical_param_pair[self._current_component],
+                score_min=self.score_min,
+                score_max=self.score_max,
             )
         previous_alternate_param_pair = [
             list(self.canonical_to_alternate(*param))
@@ -1400,6 +1460,8 @@ class MulticomponentCalibrationModel:
                     unique_scores,
                     self.alternate_to_canonical(*updated_params[0]),
                     self.alternate_to_canonical(*updated_params[1]),
+                    score_min=self.score_min,
+                    score_max=self.score_max,
                 ):
                     # midpoint violates monotonicity, reduce the upper bound
                     upper_bound = midpoint
@@ -1416,6 +1478,8 @@ class MulticomponentCalibrationModel:
                     self.alternate_to_canonical(
                         *updated_params[self._current_component]
                     ),
+                    score_min=self.score_min,
+                    score_max=self.score_max,
                 ):
                     # midpoint violates monotonicity, reduce the upper bound
                     upper_bound = midpoint
@@ -1432,6 +1496,8 @@ class MulticomponentCalibrationModel:
                     self.alternate_to_canonical(
                         *updated_params[self._current_component]
                     ),
+                    score_min=self.score_min,
+                    score_max=self.score_max,
                 ) or MulticomponentCalibrationModel.parameters_violate_monotonicity(
                     unique_scores,
                     self.alternate_to_canonical(
@@ -1440,6 +1506,8 @@ class MulticomponentCalibrationModel:
                     self.alternate_to_canonical(
                         *updated_params[self._current_component + 1]
                     ),
+                    score_min=self.score_min,
+                    score_max=self.score_max,
                 ):
                     # midpoint violates monotonicity, reduce the upper bound
                     upper_bound = midpoint
@@ -1454,6 +1522,8 @@ class MulticomponentCalibrationModel:
                 unique_scores,
                 self.alternate_to_canonical(*updated_params[compI]),
                 self.alternate_to_canonical(*updated_params[compJ]),
+                score_min=self.score_min,
+                score_max=self.score_max,
             )
             # print(f"Component {compI} and {compJ} are monotonic.")
         # print(f"All monotoniciy constraints satisfied binary search of parameter {parameter_idx} for component {component_num}.")

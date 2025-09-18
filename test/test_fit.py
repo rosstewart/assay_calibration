@@ -29,6 +29,8 @@ def test_fit():
         max_iter=1000,
         check_convergence=False,
         check_monotonic=True,
+        score_min=ds.scores.min() - 1,
+        score_max=ds.scores.max() + 1,
     )
     result = fit.to_dict()
     print(json.dumps(result, indent=4))
