@@ -29,7 +29,14 @@ def tryToFit(observations, sample_indicators, num_components, **kwargs):
         if not hasattr(model, "_log_likelihoods"):
             model._log_likelihoods = []
         model._log_likelihoods.append(-np.inf)
+        return model
+    if kwargs.get("check_monotonic", True) and model.any_components_violate_monotonicity(
+        observations
+    ):
+        raise ValueError("Fitted model violates monotonicity")
     return model
+        
+    
 
 
 def get_bootstrap_indices(dataset_size):
@@ -152,7 +159,10 @@ class Fit:
         """
         NUM_FITS = kwargs.get("num_fits", 100)
         observations = self.scoreset.scores
-        observations = pd.to_numeric(observations, errors="coerce")
+        # score_min = kwargs.get("score_min", observations.min())
+        # score_max = kwargs.get("score_max", observations.max())
+        kwargs['score_min'] = min(kwargs.get("score_min", observations.min()), self.scoreset.scores.min())
+        kwargs['score_max'] = max(kwargs.get("score_max", observations.max()), self.scoreset.scores.max())
         sample_assignments = self.scoreset.sample_assignments
         if kwargs.get("verbose", False):
             print(f"sample counts: {sample_assignments.sum(0)}")
@@ -210,6 +220,11 @@ class Fit:
             if isinstance(m, MulticomponentCalibrationModel)
             and not np.isinf(m._log_likelihoods[-1])
         ]
+        for model in models:
+            if model.any_components_violate_monotonicity(observations, score_min=kwargs.get("score_min", observations.min()),
+                                                         score_max=kwargs.get("score_max", observations.max())):
+                print("Fitted model violates monotonicity")
+                model._log_likelihoods.append(-np.inf)
         models = sorted(models, key=lambda m: m._log_likelihoods[-1], reverse=True)
         if not len(models):
             raise ValueError("No models succeeded in fitting")
