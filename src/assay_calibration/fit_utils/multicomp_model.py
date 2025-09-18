@@ -1,5 +1,4 @@
 from typing import List, Optional, Dict
-import matplotlib.pyplot as plt
 from sklearn.cluster import KMeans
 import numpy as np
 from scipy.stats import skewnorm, norm
@@ -70,6 +69,12 @@ class MulticomponentCalibrationModel:
         -------------------
         - check_convergence : bool (default True)
             If True, check for convergence in the log likelihood
+        - verbose : bool (default False)
+            If True, print progress messages.
+        - max_iter : int (default 10,000)
+            Maximum number of iterations to run the EM algorithm.
+        - tol : float (default 1e-6)
+            Tolerance for convergence in the log likelihood.
         """
         self._max_likelihood = -np.inf
         self.check_convergence = kwargs.pop("check_convergence", True)
@@ -85,10 +90,13 @@ class MulticomponentCalibrationModel:
         self._iters_since_improvement = 0
         self._log_likelihoods = []
         self._update_log_likelihood(scores, sampleIndicators)
-        pbar = tqdm(total=self._max_iter)
-        while not self.converged:
-            pbar.update(1)
-            pbar.set_description(f"Log-likelihood: {self._log_likelihoods[-1]:.7f}")
+        pbar = None
+        if kwargs.get("verbose", False):
+            pbar = tqdm(total=self._max_iter)
+        while not self.has_converged:
+            if pbar is not None:
+                pbar.update(1)
+                pbar.set_description(f"Log-likelihood: {self._log_likelihoods[-1]:.7f}")
             if self.any_components_violate_monotonicity(scores):
                 raise ValueError(
                     f"Model parameters violate monotonicity at start of iteration {self._iter:,d}."
@@ -96,36 +104,49 @@ class MulticomponentCalibrationModel:
             self._fit_iter(scores, sampleIndicators, **kwargs)
             self._iter += 1
             self._update_log_likelihood(scores, sampleIndicators)
-        pbar.close()
+        if pbar is not None:
+            pbar.close()
 
-    @property
-    def converged(self):
+    def has_converged(self, **kwargs):
+        """
+        Check if the model has converged.
+
+        Kwargs:
+        - patience : int (default 25)
+            Number of iterations to wait for improvement in the log likelihood before stopping.
+        - verbose : bool (default False)
+            If True, print progress messages.
+
+        Returns
+        -------
+        bool
+        """
+        patience = kwargs.get("patience", 25)
+        verbose = kwargs.get("verbose", False)
         if self._log_likelihoods[-1] > self._max_likelihood:
             self._iters_since_improvement = 0
             self._max_likelihood = self._log_likelihoods[-1]
             return False
         self._iters_since_improvement += 1
         if self._iter >= self._max_iter:
-            print("Reached maximum number of iterations.")
+            if verbose:
+                print(f"Reached maximum iterations ({self._max_iter}).")
             return True
         if np.isinf(self._log_likelihoods[-1]):
-            print("Log likelihood is infinite; stopping.")
+            if verbose:
+                print("Log likelihood is infinite.")
             return True
-        if self.check_convergence and self._iters_since_improvement > 25:
-            print("Have not seen improvement in log likelihood for 25 iterations.")
+        if self.check_convergence and self._iters_since_improvement > patience:
+            if verbose:
+                print(f"No improvement in log likelihood for {patience} iterations.")
             return True
         return False
-        # return self._iter >= self._max_iter or \
-        #     (self.check_convergence and len(self._log_likelihoods) > 1 and \
-        #      np.abs(self._log_likelihoods[-1] - self._log_likelihoods[-2]) < self._tol) or \
-        #      np.isinf(self._log_likelihoods[-1])
 
     def _update_log_likelihood(self, scores, sampleIndicators):
         """
         Update the likelihood of the model.
         """
         self._log_likelihoods.append(self.get_log_likelihood(scores, sampleIndicators))
-        # self._max_likelihood = max(self._log_likelihoods)
 
     def _fit_iter(self, scores, sampleIndicators, **kwargs):
         """
@@ -591,11 +612,13 @@ class MulticomponentCalibrationModel:
         -------
         None
         """
-        print("Initializing model parameters...")
+        if kwargs.get("verbose", False):
+            print("Initializing model parameters...")
         initializations = 0
         initialized = False
         while not initialized and initializations < 100:
-            print(f"Initialization {initializations}...")
+            if kwargs.get("verbose", False):
+                print(f"Initialization {initializations}...")
             # 1) Fit a k-means model to all assay scores
             self.kmeans_model = KMeans(
                 n_clusters=self.num_components, init="random", n_init=1
@@ -613,9 +636,10 @@ class MulticomponentCalibrationModel:
                 component_assignments, return_counts=True
             )
             if len(comp_nums) < self.num_components or (comp_counts < 2).any():
-                print(
-                    f"Identified {len(comp_nums)} components with counts {comp_counts}."
-                )
+                if kwargs.get("verbose", False):
+                    print(
+                        f"Identified {len(comp_nums)} components with counts {comp_counts}."
+                    )
                 initializations += 1
                 continue
             # 2) Initialize skew-normal component parameters
@@ -627,7 +651,8 @@ class MulticomponentCalibrationModel:
                 **kwargs,
             )
             if (self.scales == 0).any():
-                print(f"Found a component with scale 0.\n{self.scales}")
+                if kwargs.get("verbose", False):
+                    print(f"Found a component with scale 0.\n{self.scales}")
                 initializations += 1
                 continue
             # 3) Initialize the mixture weights
@@ -642,8 +667,9 @@ class MulticomponentCalibrationModel:
             )
         if self.any_components_violate_monotonicity(np.unique(scores)):
             raise ValueError("Model parameters violate monotonicity.")
-        print("Model parameters initialized.")
-        print(f"Skews: {self.skewness}\nLocs: {self.locs}\nScales: {self.scales}")
+        if kwargs.get("verbose", False):
+            print("Model parameters initialized.")
+            print(f"Skews: {self.skewness}\nLocs: {self.locs}\nScales: {self.scales}")
 
     def _initialize_skew_normal_parameters(
         self,
@@ -683,9 +709,9 @@ class MulticomponentCalibrationModel:
                 skew_direction in [-1, 0, 1] for skew_direction in skew_directions
             ), "Skew directions must be either -1 (left-skewed), 0 (standard-normal), or 1 (right-skewed)."
         assert skew_directions is not None, "skew_directions must be provided."
-        self.skewness = np.zeros(self.num_components)
-        self.locs = np.zeros(self.num_components)
-        self.scales = np.zeros(self.num_components)
+        self.skewness = np.zeros(self.num_components, dtype=float)
+        self.locs = np.zeros(self.num_components, dtype=float)
+        self.scales = np.zeros(self.num_components, dtype=float)
         indexMapping = self._groupValues(component_assignments)
         for componentNum, skewDirection in enumerate(skew_directions):
             if skewDirection == 1:
@@ -731,78 +757,10 @@ class MulticomponentCalibrationModel:
         self.locs = np.array([params[1] for params in optimized_params])
         self.scales = np.array([params[2] for params in optimized_params])
         if self.any_components_violate_monotonicity(scores):
-            print("density constraint initialization failed.")
+            if kwargs.get("verbose", False):
+                print("density constraint initialization failed.")
             return False
         return True
-        reduction_iters = 0
-        delta = 0.1
-        middleCompIndex = self.num_components // 2  # 3->1, 4->2, 5->2
-        uscores = np.unique(scores)
-        uscores.sort()
-        while self.any_components_violate_monotonicity(
-            scores
-        ) and reduction_iters < kwargs.get("max_monotonicity_reduction_iters", 100):
-            self.debug_monotonicity(scores)
-            reduction_iters += 1
-            # for i in range(self.num_components-1):
-            #     if MulticomponentCalibrationModel.parameters_violate_monotonicity(uscores, [self.skewness[i],self.locs[i],self.scales[i]],
-            #                                                                       [self.skewness[i+1],self.locs[i+1],self.scales[i+1]]):
-            #         widest = i
-            #         if self.scales[i] < self.scales[i+1]:
-            #             widest = i+1
-            #         self.scales[widest] *= 0.5
-            #         break
-            for i in range(self.num_components):
-                # self.skewness[i] *= 0.75
-                self.scales[i] *= 1.1
-                if i < middleCompIndex:
-                    self.locs[i] -= delta * (abs(i - middleCompIndex))
-                elif ((self.num_components % 2 == 0) and (i >= middleCompIndex)) or (
-                    (self.num_components % 2 == 1) and (i > middleCompIndex)
-                ):  # if even number of components, move the remaining components to the right
-                    self.locs[i] += delta * (1 + abs(i - middleCompIndex))
-
-        if self.any_components_violate_monotonicity(scores):
-            # print("Could not enforce monotonicity between components.")
-            return False
-        return True
-
-    def debug_monotonicity(self, scores):
-        fig, ax = plt.subplots(
-            self.num_components, 2, figsize=(15, 5 * (self.num_components - 1))
-        )
-        score_range = np.array(sorted(scores))
-        for i in range(self.num_components - 1):
-            f = skewnorm.logpdf(
-                score_range, self.skewness[i], self.locs[i], self.scales[i]
-            )
-            g = skewnorm.logpdf(
-                score_range, self.skewness[i + 1], self.locs[i + 1], self.scales[i + 1]
-            )
-            diffs = np.diff(f - g)
-            max_diff, min_diff = np.max(diffs), np.min(diffs)
-            ax[i, 0].plot(score_range, f - g)
-            ax[i, 0].set_title(
-                f"Component {i} - Component {i+1}, max_diff: {max_diff:.2f}, min_diff: {min_diff:.2f}"
-            )
-            f = skewnorm.pdf(
-                score_range, self.skewness[i], self.locs[i], self.scales[i]
-            )
-            g = skewnorm.pdf(
-                score_range, self.skewness[i + 1], self.locs[i + 1], self.scales[i + 1]
-            )
-            ax[i, 1].plot(score_range, f, label=f"Component {i}")
-            ax[i, 1].plot(score_range, g, label=f"Component {i+1}")
-            ax[i, 1].legend()
-        f = skewnorm.pdf(score_range, self.skewness[0], self.locs[0], self.scales[0])
-        g = skewnorm.pdf(score_range, self.skewness[-1], self.locs[-1], self.scales[-1])
-        ax[-1, 0].plot(score_range, f - g)
-        ax[-1, 0].set_title(f"Component 0 - Component {self.num_components-1}")
-        ax[-1, 1].plot(score_range, f, label="Component 0")
-        ax[-1, 1].plot(score_range, g, label=f"Component {self.num_components-1}")
-        ax[-1, 1].legend()
-        fig.savefig("debug_monotonicity.png")
-        plt.close(fig)
 
     def any_components_violate_monotonicity(self, scores, **kwargs) -> bool:
         """

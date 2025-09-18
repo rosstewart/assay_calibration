@@ -18,7 +18,9 @@ def test_fit():
     ds = Scoreset(df.dataframe[df.dataframe.Dataset == "BRCA1_Adamovich_2022_HDR"])
     print(ds)
     fit = Fit(ds)
-    fit.run(core_limit=1, num_fits=1, component_range=[2, 3], bootstrap=False)
+    fit.run(
+        core_limit=1, num_fits=1, component_range=[2, 3], bootstrap=False, verbose=True
+    )
     result = fit.to_dict()
     print(json.dumps(result, indent=4))
 
