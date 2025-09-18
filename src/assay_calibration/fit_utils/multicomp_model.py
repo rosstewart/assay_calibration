@@ -70,6 +70,12 @@ class MulticomponentCalibrationModel:
         -------------------
         - check_convergence : bool (default True)
             If True, check for convergence in the log likelihood
+        - verbose : bool (default False)
+            If True, print progress messages.
+        - max_iter : int (default 10,000)
+            Maximum number of iterations to run the EM algorithm.
+        - tol : float (default 1e-6)
+            Tolerance for convergence in the log likelihood.
         """
         self._max_likelihood = -np.inf
         self.check_convergence = kwargs.pop("check_convergence", True)
@@ -85,10 +91,13 @@ class MulticomponentCalibrationModel:
         self._iters_since_improvement = 0
         self._log_likelihoods = []
         self._update_log_likelihood(scores, sampleIndicators)
-        pbar = tqdm(total=self._max_iter)
+        pbar = None
+        if kwargs.get("verbose", False):
+            pbar = tqdm(total=self._max_iter)
         while not self.converged:
-            pbar.update(1)
-            pbar.set_description(f"Log-likelihood: {self._log_likelihoods[-1]:.7f}")
+            if pbar is not None:
+                pbar.update(1)
+                pbar.set_description(f"Log-likelihood: {self._log_likelihoods[-1]:.7f}")
             if self.any_components_violate_monotonicity(scores):
                 raise ValueError(
                     f"Model parameters violate monotonicity at start of iteration {self._iter:,d}."
@@ -96,7 +105,8 @@ class MulticomponentCalibrationModel:
             self._fit_iter(scores, sampleIndicators, **kwargs)
             self._iter += 1
             self._update_log_likelihood(scores, sampleIndicators)
-        pbar.close()
+        if pbar is not None:
+            pbar.close()
 
     @property
     def converged(self):
@@ -683,9 +693,9 @@ class MulticomponentCalibrationModel:
                 skew_direction in [-1, 0, 1] for skew_direction in skew_directions
             ), "Skew directions must be either -1 (left-skewed), 0 (standard-normal), or 1 (right-skewed)."
         assert skew_directions is not None, "skew_directions must be provided."
-        self.skewness = np.zeros(self.num_components)
-        self.locs = np.zeros(self.num_components)
-        self.scales = np.zeros(self.num_components)
+        self.skewness = np.zeros(self.num_components, dtype=float)
+        self.locs = np.zeros(self.num_components, dtype=float)
+        self.scales = np.zeros(self.num_components, dtype=float)
         indexMapping = self._groupValues(component_assignments)
         for componentNum, skewDirection in enumerate(skew_directions):
             if skewDirection == 1:
