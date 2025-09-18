@@ -19,7 +19,18 @@ def test_fit():
     print(ds)
     fit = Fit(ds)
     fit.run(
-        core_limit=1, num_fits=1, component_range=[2, 3], bootstrap=False, verbose=True
+        core_limit=1,
+        num_fits=1,
+        component_range=[
+            2,
+        ],
+        bootstrap=False,
+        verbose=True,
+        max_iter=1000,
+        check_convergence=False,
+        check_monotonic=True,
+        score_min=ds.scores.min() - 1,
+        score_max=ds.scores.max() + 1,
     )
     result = fit.to_dict()
     print(json.dumps(result, indent=4))
