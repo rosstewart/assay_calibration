@@ -75,9 +75,12 @@ class MulticomponentCalibrationModel:
             Maximum number of iterations to run the EM algorithm.
         - tol : float (default 1e-6)
             Tolerance for convergence in the log likelihood.
+        - check_monotonic : bool (default True)
+            If True, check for monotonicity between each pair of neighboring components
         """
         self._max_likelihood = -np.inf
         self.check_convergence = kwargs.pop("check_convergence", True)
+        self.check_monotonic = kwargs.pop("check_monotonic", True)
         sampleIndicators = sampleIndicators.astype(bool)
         # Validate input data
         self.validate_inputs(scores, sampleIndicators)
@@ -93,11 +96,13 @@ class MulticomponentCalibrationModel:
         pbar = None
         if kwargs.get("verbose", False):
             pbar = tqdm(total=self._max_iter)
-        while not self.has_converged:
+        while not self.has_converged(**kwargs):
             if pbar is not None:
                 pbar.update(1)
                 pbar.set_description(f"Log-likelihood: {self._log_likelihoods[-1]:.7f}")
-            if self.any_components_violate_monotonicity(scores):
+            if self.check_monotonic and self.any_components_violate_monotonicity(
+                scores
+            ):
                 raise ValueError(
                     f"Model parameters violate monotonicity at start of iteration {self._iter:,d}."
                 )
@@ -166,7 +171,9 @@ class MulticomponentCalibrationModel:
         """
 
         # step 1) make sure monotonicity is enforced
-        if self.any_components_violate_monotonicity(sorted(np.unique(scores))):
+        if self.check_monotonic and self.any_components_violate_monotonicity(
+            sorted(np.unique(scores))
+        ):
             raise ValueError(
                 f"Model parameters violate monotonicity at iteration {self._iter:,d}."
             )
@@ -174,14 +181,18 @@ class MulticomponentCalibrationModel:
         component_posteriors = self.get_component_posteriors(scores, sampleIndicators)
         for component_num in range(self.num_components):
             self._current_component = component_num
-            if self.any_components_violate_monotonicity(sorted(np.unique(scores))):
+            if self.check_monotonic and self.any_components_violate_monotonicity(
+                sorted(np.unique(scores))
+            ):
                 raise ValueError(
                     f"Model parameters violate monotonicity at start of component {component_num} iteration {self._iter:,d}."
                 )
             self._update_component_parameters(
                 scores, component_posteriors[:, component_num], component_num
             )
-            if self.any_components_violate_monotonicity(sorted(np.unique(scores))):
+            if self.check_monotonic and self.any_components_violate_monotonicity(
+                sorted(np.unique(scores))
+            ):
                 raise ValueError(
                     f"Updated component parameters for component {component_num} at iteration {self._iter} violate monotonicity.\n{self.get_params()}"
                 )
@@ -209,9 +220,15 @@ class MulticomponentCalibrationModel:
         -------
         None
         """
-        self._update_component_location(scores, component_posteriors, component_num)
-        self._update_component_Delta(scores, component_posteriors, component_num)
-        self._update_component_Gamma(scores, component_posteriors, component_num)
+        self._update_component_location(
+            scores, component_posteriors, component_num, **kwargs
+        )
+        self._update_component_Delta(
+            scores, component_posteriors, component_num, **kwargs
+        )
+        self._update_component_Gamma(
+            scores, component_posteriors, component_num, **kwargs
+        )
         (
             self.skewness[component_num],
             self.locs[component_num],
@@ -222,7 +239,9 @@ class MulticomponentCalibrationModel:
             self.updated_component_Gamma,
         )
         # make sure the updated component parameters satisfy monotonicity
-        if self.any_components_violate_monotonicity(sorted(np.unique(scores))):
+        if self.check_monotonic and self.any_components_violate_monotonicity(
+            sorted(np.unique(scores))
+        ):
             raise ValueError(
                 f"Updated component parameters for component {component_num} at iteration {self._iter} violate monotonicity.\n{self.get_params()}"
             )
@@ -298,6 +317,10 @@ class MulticomponentCalibrationModel:
         location_candidate = self._propose_location_update(
             scores, component_posteriors, self.get_component_params(component_num)
         )
+        if not self.check_monotonic:
+            updated_location = location_candidate
+            self.updated_component_location = updated_location
+            return
         # get the last pair of component parameters for components component_num and component_num + 1 that satistfied monotonicity
         last_params_canonical = [
             self.get_component_params(component_num)
@@ -419,6 +442,10 @@ class MulticomponentCalibrationModel:
         Delta_candidate = self._propose_Delta_update(
             scores, component_posteriors, component_num
         )
+        if not self.check_monotonic:
+            updated_Delta = Delta_candidate
+            self.updated_component_Delta = updated_Delta
+            return
         last_params_canonical = []
         for i in range(self.num_components):
             if i != component_num:
@@ -460,7 +487,9 @@ class MulticomponentCalibrationModel:
         candidate = (d * component_posteriors).sum() / component_posteriors.sum()
         return candidate
 
-    def _update_component_Gamma(self, scores, component_posteriors, component_num):
+    def _update_component_Gamma(
+        self, scores, component_posteriors, component_num, **kwargs
+    ) -> None:
         """
         Update the Gamma parameter of the given component.
 
@@ -483,6 +512,10 @@ class MulticomponentCalibrationModel:
         Gamma_candidate = self._propose_Gamma_update(
             scores, component_posteriors, component_num
         )
+        if not self.check_monotonic:
+            updated_Gamma = Gamma_candidate
+            self.updated_component_Gamma = updated_Gamma
+            return
         last_params_canonical = []
         for i in range(self.num_components):
             if i != component_num:
@@ -658,14 +691,19 @@ class MulticomponentCalibrationModel:
             # 3) Initialize the mixture weights
             self._initialize_sample_weights(scores, sampleIndicators)
 
-            # 4) adjust the skew-normal component parameters to enforce monotonicity between FA and FN components
+            # 4) adjust the skew-normal component parameters to enforce monotonicity between adjacent components
+            if not self.check_monotonic:
+                initialized = True
+                break
             initialized = self.adjust_to_monotonicity(np.unique(scores))
             initializations += 1
         if not initialized:
             raise ValueError(
                 f"Could not initialize model parameters; Last params:\nskewness:{self.skewness}\nlocs:{self.locs}\nscales:{self.scales}"
             )
-        if self.any_components_violate_monotonicity(np.unique(scores)):
+        if self.check_monotonic and self.any_components_violate_monotonicity(
+            np.unique(scores)
+        ):
             raise ValueError("Model parameters violate monotonicity.")
         if kwargs.get("verbose", False):
             print("Model parameters initialized.")
