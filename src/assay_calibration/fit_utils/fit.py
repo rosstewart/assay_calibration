@@ -200,11 +200,13 @@ class Fit:
                 for num_components in component_range
             ]
         else:
+            verbosity = 0
             if kwargs.get("verbose", False):
                 print(
                     f"Running {NUM_FITS} fits for each of {len(component_range)} components with {core_limit} cores"
                 )
-            models = Parallel(n_jobs=core_limit, verbose=10)(
+                verbosity = kwargs.get("verbose_level", 20)
+            models = Parallel(n_jobs=core_limit, verbose=verbosity)(
                 delayed(tryToFit)(
                     train_observations,
                     train_sample_assignments,
