@@ -190,7 +190,7 @@ class Scoreset:
             raise FileNotFoundError(f"JSON file not found: {json_path}")
         with open(json_path, "r") as f:
             data = json.load(f)
-        dataframe = pd.DataFrame.from_dict(data, orient="records")  # type: ignore
+        dataframe = pd.DataFrame.from_dict(data)  # type: ignore
         return cls(dataframe, **kwargs)
 
     def _init_dataframe(self, dataframe: pd.DataFrame, **kwargs):
