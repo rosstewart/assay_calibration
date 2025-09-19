@@ -137,14 +137,7 @@ class MulticomponentCalibrationModel:
         -------
         bool
         """
-        patience = kwargs.get("patience", 25)
         verbose = kwargs.get("verbose", False)
-        # if self._log_likelihoods[-1] > self._max_likelihood + self._tol_em:
-        if abs(self._log_likelihoods[-1] - self._max_likelihood) > self._tol_em:
-            self._iters_since_change = 0
-            self._max_likelihood = self._log_likelihoods[-1]
-            return False
-        self._iters_since_change += 1
         if self._iter >= self._max_iter:
             if verbose:
                 print(f"Reached maximum iterations ({self._max_iter}).")
@@ -153,6 +146,12 @@ class MulticomponentCalibrationModel:
             if verbose:
                 print("Log likelihood is infinite.")
             return True
+        patience = kwargs.get("patience", 25)
+        if (self._log_likelihoods[-1] - self._max_likelihood) > self._tol_em:
+            self._iters_since_change = 0
+            self._max_likelihood = self._log_likelihoods[-1]
+            return False
+        self._iters_since_change += 1
         if self.check_convergence and self._iters_since_change > patience:
             if verbose:
                 print(f"No change in log likelihood greater than {self._tol_em:.3e} for {patience} iterations. Stopping at iteration {self._iter} with log-likelihood {self._log_likelihoods[-1]:.7f}.")
