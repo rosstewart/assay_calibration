@@ -6,7 +6,7 @@ from functools import reduce
 import logging
 from io import StringIO
 from tqdm import tqdm
-from typing import Tuple
+import json
 
 logging.basicConfig()
 logging.root.setLevel(logging.NOTSET)
@@ -188,7 +188,9 @@ class Scoreset:
         json_path = Path(json_path)
         if not json_path.exists():
             raise FileNotFoundError(f"JSON file not found: {json_path}")
-        dataframe = pd.read_json(json_path, orient="records", lines=True)
+        with open(json_path, "r") as f:
+            data = json.load(f)
+        dataframe = pd.DataFrame.from_dict(data, orient="records")  # type: ignore
         return cls(dataframe, **kwargs)
 
     def _init_dataframe(self, dataframe: pd.DataFrame, **kwargs):
