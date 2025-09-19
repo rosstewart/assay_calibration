@@ -73,8 +73,10 @@ class MulticomponentCalibrationModel:
             If True, print progress messages.
         - max_iter : int (default 10,000)
             Maximum number of iterations to run the EM algorithm.
-        - tol : float (default 1e-6)
-            Tolerance for convergence in the log likelihood.
+        - tol_bsearch : float (default 1e-4)
+            Tolerance for convergence in the binary search in parameter updates.
+        - tol_em : float (default 1e-4)
+            Tolerance for convergence in the EM algorithm.
         - check_monotonic : bool (default True)
             If True, check for monotonicity between each pair of neighboring components
         - score_min : float | int (default None)
@@ -85,8 +87,8 @@ class MulticomponentCalibrationModel:
         self._max_likelihood = -np.inf
         self.check_convergence = kwargs.pop("check_convergence", True)
         self.check_monotonic = kwargs.pop("check_monotonic", True)
-        self.score_min = kwargs.get("score_min", None)
-        self.score_max = kwargs.get("score_max", None)
+        self.score_min = kwargs.get("score_min", min(scores))
+        self.score_max = kwargs.get("score_max", max(scores))
         sampleIndicators = sampleIndicators.astype(bool)
         # Validate input data
         self.validate_inputs(scores, sampleIndicators)
@@ -94,7 +96,8 @@ class MulticomponentCalibrationModel:
         self.initialize_parameters(scores, sampleIndicators, **kwargs)
         # run the EM algorithm to fit the model to the given assay scores and sample indicators
         self._max_iter = kwargs.get("max_iter", 10000)
-        self._tol = kwargs.get("tol", 1e-6)
+        self._tol_bsearch = kwargs.get("tol_bsearch", 1e-3)
+        self._tol_em = kwargs.get("tol_em", 1e-3)
         self._iter = 0
         self._iters_since_improvement = 0
         self._log_likelihoods = []
@@ -103,18 +106,14 @@ class MulticomponentCalibrationModel:
         if kwargs.get("verbose", False):
             pbar = tqdm(total=self._max_iter)
         while not self.has_converged(**kwargs):
-            if self.check_monotonic and self.any_components_violate_monotonicity(
-                scores
-            ):
+            if self.check_monotonic and self.any_components_violate_monotonicity(**kwargs):
                 raise ValueError(
                     f"Model parameters violate monotonicity at start of iteration {self._iter:,d}."
                 )
             if pbar is not None:
                 pbar.update(1)
-                pbar.set_description(f"Log-likelihood: {self._log_likelihoods[-1]:.7f}")
-            if self.check_monotonic and self.any_components_violate_monotonicity(
-                scores
-            ):
+                pbar.set_description(f"Log-likelihood: {self._log_likelihoods[-1]:.7f} (change: {self._log_likelihoods[-1]-self._max_likelihood:.7f})")
+            if self.check_monotonic and self.any_components_violate_monotonicity(**kwargs):
                 raise ValueError(
                     f"Model parameters violate monotonicity at start of iteration {self._iter:,d}."
                 )
@@ -140,11 +139,12 @@ class MulticomponentCalibrationModel:
         """
         patience = kwargs.get("patience", 25)
         verbose = kwargs.get("verbose", False)
-        if self._log_likelihoods[-1] > self._max_likelihood:
-            self._iters_since_improvement = 0
+        # if self._log_likelihoods[-1] > self._max_likelihood + self._tol_em:
+        if abs(self._log_likelihoods[-1] - self._max_likelihood) > self._tol_em:
+            self._iters_since_change = 0
             self._max_likelihood = self._log_likelihoods[-1]
             return False
-        self._iters_since_improvement += 1
+        self._iters_since_change += 1
         if self._iter >= self._max_iter:
             if verbose:
                 print(f"Reached maximum iterations ({self._max_iter}).")
@@ -153,9 +153,9 @@ class MulticomponentCalibrationModel:
             if verbose:
                 print("Log likelihood is infinite.")
             return True
-        if self.check_convergence and self._iters_since_improvement > patience:
+        if self.check_convergence and self._iters_since_change > patience:
             if verbose:
-                print(f"No improvement in log likelihood for {patience} iterations.")
+                print(f"No change in log likelihood greater than {self._tol_em:.3e} for {patience} iterations. Stopping at iteration {self._iter} with log-likelihood {self._log_likelihoods[-1]:.7f}.")
             return True
         return False
 
@@ -183,9 +183,7 @@ class MulticomponentCalibrationModel:
         """
 
         # step 1) make sure monotonicity is enforced
-        if self.check_monotonic and self.any_components_violate_monotonicity(
-            sorted(np.unique(scores))
-        ):
+        if self.check_monotonic and self.any_components_violate_monotonicity(**kwargs):
             raise ValueError(
                 f"Model parameters violate monotonicity at iteration {self._iter:,d}."
             )
@@ -193,26 +191,20 @@ class MulticomponentCalibrationModel:
         component_posteriors = self.get_component_posteriors(scores, sampleIndicators)
         for component_num in range(self.num_components):
             self._current_component = component_num
-            if self.check_monotonic and self.any_components_violate_monotonicity(
-                sorted(np.unique(scores))
-            ):
+            if self.check_monotonic and self.any_components_violate_monotonicity(**kwargs):
                 raise ValueError(
                     f"Model parameters violate monotonicity at start of component {component_num} iteration {self._iter:,d}."
                 )
             self._update_component_parameters(
                 scores, component_posteriors[:, component_num], component_num
             )
-            if self.check_monotonic and self.any_components_violate_monotonicity(
-                sorted(np.unique(scores))
-            ):
+            if self.check_monotonic and self.any_components_violate_monotonicity(**kwargs):
                 raise ValueError(
                     f"Updated component parameters for component {component_num} at iteration {self._iter} violate monotonicity.\n{self.get_params()}"
                 )
         # step 3) update mixture weights for each sample
         self._update_sample_weights(scores, sampleIndicators)
-        if self.check_monotonic and self.any_components_violate_monotonicity(
-            sorted(np.unique(scores))
-        ):
+        if self.check_monotonic and self.any_components_violate_monotonicity(**kwargs):
             raise ValueError(
                 f"Model parameters violate monotonicity at end of iteration {self._iter:,d}."
             )
@@ -257,9 +249,7 @@ class MulticomponentCalibrationModel:
             self.updated_component_Gamma,
         )
         # make sure the updated component parameters satisfy monotonicity
-        if self.check_monotonic and self.any_components_violate_monotonicity(
-            sorted(np.unique(scores))
-        ):
+        if self.check_monotonic and self.any_components_violate_monotonicity(**kwargs):
             raise ValueError(
                 f"Updated component parameters for component {component_num} at iteration {self._iter} violate monotonicity.\n{self.get_params()}"
             )
@@ -719,9 +709,7 @@ class MulticomponentCalibrationModel:
             raise ValueError(
                 f"Could not initialize model parameters; Last params:\nskewness:{self.skewness}\nlocs:{self.locs}\nscales:{self.scales}"
             )
-        if self.check_monotonic and self.any_components_violate_monotonicity(
-            np.unique(scores)
-        ):
+        if self.check_monotonic and self.any_components_violate_monotonicity(**kwargs):
             raise ValueError("Model parameters violate monotonicity.")
         if kwargs.get("verbose", False):
             print("Model parameters initialized.")
@@ -818,48 +806,21 @@ class MulticomponentCalibrationModel:
         self.skewness = np.array([params[0] for params in optimized_params])
         self.locs = np.array([params[1] for params in optimized_params])
         self.scales = np.array([params[2] for params in optimized_params])
-        if self.any_components_violate_monotonicity(scores, **kwargs):
+        if self.any_components_violate_monotonicity(**kwargs):
             if kwargs.get("verbose", False):
                 print("density constraint initialization failed.")
             return False
         return True
 
-    def any_components_violate_monotonicity(self, scores, **kwargs) -> bool:
+    def any_components_violate_monotonicity(self,**kwargs) -> bool:
         """
         Check whether the joint density ratio of all adjacent skew normal components is monotonic
-
-        Parameters
-        ----------
-        - scores : numpy.array
-            Assay scores.
-
-        Optional Parameters
-        -------------------
-        - score_min : float | int (default None)
-            Minimum score to consider when checking for monotonicity.
-        - score_max : float | int (default None)
-            Maximum score to consider when checking for monotonicity.
 
         Returns
         -------
         bool
             True if the joint density ratio of any pair of adjacent skew normal components is non-monotonic, False otherwise.
         """
-        # uscores = np.unique(scores)
-        # uscores.sort()
-        # if self.score_min is not None:
-        #     if self.score_min < uscores[0]:
-        #         uscores = np.insert(uscores, 0, self.score_min)
-        #     uscores = uscores[uscores >= self.score_min]
-        # if self.score_max is not None:
-        #     if self.score_max > uscores[-1]:
-        #         uscores = np.append(
-        #             uscores,
-        #             [
-        #                 self.score_max,
-        #             ],
-        #         )
-        #     uscores = uscores[uscores <= self.score_max]
         for comp_i in range(self.num_components):
             if comp_i != self.num_components - 1:
                 # if comp_i is not the last component, check that the density ratio of comp_i to comp_i + 1 is monotonic
@@ -1462,7 +1423,7 @@ class MulticomponentCalibrationModel:
             list(deepcopy(previous_alternate_param))
             for previous_alternate_param in previous_alternate_param_pair
         ]
-        while abs(upper_bound - lower_bound) > self._tol:
+        while abs(upper_bound - lower_bound) > self._tol_bsearch:
             # Get the midpoint of the lower and upper bounds
             midpoint = (upper_bound + lower_bound) / 2
             # Update the parameter value in the alternate parameterization
