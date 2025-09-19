@@ -12,7 +12,6 @@ from evidence_thresholds import get_tavtigian_constant
 import logging
 import sys
 from joblib import Parallel, delayed
-import pandas as pd
 
 logging.basicConfig()
 logging.root.setLevel(logging.ERROR)
@@ -30,9 +29,7 @@ def tryToFit(observations, sample_indicators, num_components, **kwargs):
             model._log_likelihoods = []
         model._log_likelihoods.append(-np.inf)
         return model
-    if kwargs.get("check_monotonic", True) and model.any_components_violate_monotonicity(
-        observations
-    ):
+    if kwargs.get("check_monotonic", True) and model.any_components_violate_monotonicity(**kwargs):
         raise ValueError("Fitted model violates monotonicity")
     return model
         
@@ -200,11 +197,13 @@ class Fit:
                 for num_components in component_range
             ]
         else:
+            verbosity = 0
             if kwargs.get("verbose", False):
                 print(
                     f"Running {NUM_FITS} fits for each of {len(component_range)} components with {core_limit} cores"
                 )
-            models = Parallel(n_jobs=core_limit, verbose=10)(
+                verbosity = kwargs.get("verbose_level", 20)
+            models = Parallel(n_jobs=core_limit, verbose=verbosity)(
                 delayed(tryToFit)(
                     train_observations,
                     train_sample_assignments,
@@ -221,8 +220,7 @@ class Fit:
             and not np.isinf(m._log_likelihoods[-1])
         ]
         for model in models:
-            if model.any_components_violate_monotonicity(observations, score_min=kwargs.get("score_min", observations.min()),
-                                                         score_max=kwargs.get("score_max", observations.max())):
+            if model.any_components_violate_monotonicity(**kwargs):
                 print("Fitted model violates monotonicity")
                 model._log_likelihoods.append(-np.inf)
         models = sorted(models, key=lambda m: m._log_likelihoods[-1], reverse=True)

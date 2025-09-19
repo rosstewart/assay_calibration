@@ -19,8 +19,9 @@ def test_fit():
     print(ds)
     fit = Fit(ds)
     fit.run(
-        core_limit=1,
-        num_fits=1,
+        core_limit=5,
+        num_fits=5,
+        verbose_level=20,
         component_range=[
             2,
         ],
@@ -46,7 +47,7 @@ def test_basic_scoreset():
     sample_assignments[200:] = 1
     scoreset = BasicScoreset(scores, sample_assignments)
     fit = Fit(scoreset)
-    fit.run(core_limit=1, num_fits=1, component_range=[2, 3])
+    fit.run(core_limit=5, num_fits=5, component_range=[2, 3], verbose=True, verbose_level=20)
     result = fit.to_dict()
     print(json.dumps(result, indent=4))
 
