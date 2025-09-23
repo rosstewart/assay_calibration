@@ -118,7 +118,9 @@ class MulticomponentCalibrationModel:
                     f"Model parameters violate monotonicity at start of iteration {self._iter:,d}."
                 )
             self._fit_iter(scores, sampleIndicators, **kwargs)
+            satisfies_monotonicity = not self.any_components_violate_monotonicity()
             self._iter += 1
+            print(f"Iteration {self._iter}: satisfies_monotonicity={satisfies_monotonicity}")
             self._update_log_likelihood(scores, sampleIndicators)
         if pbar is not None:
             pbar.close()
