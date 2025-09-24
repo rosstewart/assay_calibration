@@ -24,16 +24,6 @@ def joint_densities(x, params, weights):
     )
 
 
-# def unstable_posteriors(x, params, weights):
-#     """
-#     posterior probabilities of each component given x
-#     """
-#     joint_densities_ = joint_densities(x, params, weights)
-#     if np.isnan(joint_densities_).any():
-#         raise ValueError(f"joint_densities_ contains NaNs: {joint_densities_}")
-#     return joint_densities_ / joint_densities_.sum(axis=0, keepdims=True)
-
-
 def component_posteriors(x, params, individual_sample_weights):
     individual_sample_weights = np.array(individual_sample_weights)[:, None]
     assert len(params) == individual_sample_weights.shape[0]
