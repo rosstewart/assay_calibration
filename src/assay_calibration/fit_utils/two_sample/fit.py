@@ -1,6 +1,6 @@
 from .update_steps import em_iteration, get_sample_weights
 from .density_utils import get_likelihood
-from .initializations import kmeans_init
+from .initializations import kmeans_init, methodOfMomentsInit
 from . import constraints
 
 import numpy as np
@@ -8,7 +8,9 @@ import logging
 from tqdm.auto import tqdm
 
 
-def single_fit(observations, sample_indicators, N_components, constrained, **kwargs):
+def single_fit(
+    observations, sample_indicators, N_components, constrained, init_method, **kwargs
+):
     """
     Fit a two-component mixture model to the observations using the EM algorithm.
 
@@ -20,6 +22,7 @@ def single_fit(observations, sample_indicators, N_components, constrained, **kwa
         2D one-hot encoded array indicating sample membership for each observation.
     constrained : bool
         Whether to enforce component-pair density ratio constraints
+    init_method : kmeans or method_of_moments
 
     Optional Parameters (kwargs)
     -------------------------
@@ -73,17 +76,24 @@ def single_fit(observations, sample_indicators, N_components, constrained, **kwa
                 f"Initial params length {len(initial_params)} does not match number of components {N_components}"
             )
     else:
-        # Run Initialization
-        W = np.ones((N_samples, N_components)) / N_components
-        try:
-            initial_params, kmeans = kmeans_init(observations, n_clusters=N_components)
-        except ValueError:
-            logging.warning("Failed to initialize")
-            return dict(
-                component_params=[[] for _ in range(N_components)],
-                weights=W,
-                likelihoods=[-1 * np.inf],
-            )
+        if init_method == "kmeans":
+            # Run Initialization
+            W = np.ones((N_samples, N_components)) / N_components
+            try:
+                initial_params, kmeans = kmeans_init(
+                    observations, n_clusters=N_components
+                )
+            except ValueError:
+                logging.warning("Failed to initialize")
+                return dict(
+                    component_params=[[] for _ in range(N_components)],
+                    weights=W,
+                    likelihoods=[-1 * np.inf],
+                )
+        else:
+            assert init_method == "method_of_moments"
+            kmeans = None
+            initial_params = methodOfMomentsInit(observations, N_components)
         W = get_sample_weights(observations, sample_indicators, initial_params, W)
     history = [dict(component_params=initial_params, weights=W)]
     # initial likelihood

@@ -1,5 +1,6 @@
 import scipy.stats as sps
 import numpy as np
+from . import density_utils
 from typing import Tuple
 
 
@@ -47,3 +48,19 @@ def multicomponent_density_constraint_violated(
             return True
 
     return False
+
+
+def positive_likelihood_ratio_montonicity_constraint_violated(
+    component_param_sets,
+    weights_pathogenic,
+    weights_benign,
+    xlims: Tuple[float, float],
+    epsilon=1e-12,
+):
+    x_values = np.linspace(*xlims, 1000)
+    f_path = density_utils.mixture_pdf(
+        x_values, component_param_sets, weights_pathogenic
+    )
+    f_benign = density_utils.mixture_pdf(x_values, component_param_sets, weights_benign)
+    log_lr_plus = np.log(f_path) - np.log(f_benign)
+    return (np.diff(log_lr_plus) > 0).any()

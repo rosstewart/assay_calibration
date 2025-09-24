@@ -12,6 +12,7 @@ from evidence_thresholds import get_tavtigian_constant
 import logging
 import sys
 from joblib import Parallel, delayed
+from two_sample.fit import single_fit
 
 logging.basicConfig()
 logging.root.setLevel(logging.ERROR)
@@ -19,6 +20,9 @@ logger = logging.getLogger(__name__)
 
 
 def tryToFit(observations, sample_indicators, num_components, **kwargs):
+    # fit either initializing with method of moments or kmeans
+    single_fit()
+    raise NotImplemented("run two_sample.fit.singleFit")
     model = MulticomponentCalibrationModel(num_components)
     try:
         model.fit(observations, sample_indicators, **kwargs)
@@ -29,11 +33,11 @@ def tryToFit(observations, sample_indicators, num_components, **kwargs):
             model._log_likelihoods = []
         model._log_likelihoods.append(-np.inf)
         return model
-    if kwargs.get("check_monotonic", True) and model.any_components_violate_monotonicity(**kwargs):
+    if kwargs.get(
+        "check_monotonic", True
+    ) and model.any_components_violate_monotonicity(**kwargs):
         raise ValueError("Fitted model violates monotonicity")
     return model
-        
-    
 
 
 def get_bootstrap_indices(dataset_size):
@@ -158,8 +162,12 @@ class Fit:
         observations = self.scoreset.scores
         # score_min = kwargs.get("score_min", observations.min())
         # score_max = kwargs.get("score_max", observations.max())
-        kwargs['score_min'] = min(kwargs.get("score_min", observations.min()), self.scoreset.scores.min())
-        kwargs['score_max'] = max(kwargs.get("score_max", observations.max()), self.scoreset.scores.max())
+        kwargs["score_min"] = min(
+            kwargs.get("score_min", observations.min()), self.scoreset.scores.min()
+        )
+        kwargs["score_max"] = max(
+            kwargs.get("score_max", observations.max()), self.scoreset.scores.max()
+        )
         sample_assignments = self.scoreset.sample_assignments
         if kwargs.get("verbose", False):
             print(f"sample counts: {sample_assignments.sum(0)}")

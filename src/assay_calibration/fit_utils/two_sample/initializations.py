@@ -42,6 +42,15 @@ def kmeans_init(X, **kwargs):
     raise ValueError("Failed to initialize")
 
 
+def methodOfMomentsInit(
+    X,
+    n_components,
+):
+    # return [(skew_1, loc_1, sigma_1), ..., (skew_k, loc_k, sigma_k)]
+    raise NotImplementedError("Implement Method of Moments")
+    cutPoints = np.random.uniform(X.min(), X.max(), n_components - 1)
+
+
 def fix_to_satisfy_density_constraint(component_parameters, xlims):
     n_components = len(component_parameters)
     rep_failed = False
