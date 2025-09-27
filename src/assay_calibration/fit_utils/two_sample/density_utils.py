@@ -24,10 +24,12 @@ def joint_densities(x, params, weights):
     )
 
 
-def component_posteriors(x, params, individual_sample_weights):
+def component_posteriors(x, canonical_params, individual_sample_weights):
     individual_sample_weights = np.array(individual_sample_weights)[:, None]
-    assert len(params) == individual_sample_weights.shape[0]
-    log_pdfs = np.stack([sps.skewnorm.logpdf(x.ravel(), *p) for p in params], axis=0)
+    assert len(canonical_params) == individual_sample_weights.shape[0]
+    log_pdfs = np.stack(
+        [sps.skewnorm.logpdf(x.ravel(), *p) for p in canonical_params], axis=0
+    )
     numerators = np.zeros_like(log_pdfs)
     numerators = log_pdfs + np.log(individual_sample_weights)
     d = np.zeros_like(numerators[0])
@@ -78,7 +80,7 @@ def alternate_to_canonical(loc, Delta, Gamma):
         a = np.sign(Delta) * np.sqrt(Delta**2 / Gamma)
     except ZeroDivisionError:
         raise ZeroDivisionError(
-            f"Invalid skewness parameter: {np.sign(Delta) * np.sqrt(Delta**2 / Gamma)} from Delta: {Delta}, Gamma: {Gamma}"
+            f"Invalid skewness parameter: {Delta * np.sqrt(1 / Gamma)} from Delta: {Delta}, Gamma: {Gamma}"
         )
     if np.isinf(a) or np.isnan(a):
         raise ZeroDivisionError(
