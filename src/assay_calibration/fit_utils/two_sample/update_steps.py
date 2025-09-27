@@ -235,7 +235,7 @@ def get_constrained_Gamma_update(
 def get_sample_weights(
     observations, sample_indicators, updated_canonical_params, current_weights
 ):
-    epsilon = 1e-300  # Small value to prevent zeros
+    # epsilon = 1e-300  # Small value to prevent zeros
     
     updated_weights = np.zeros_like(current_weights)
     for i in range(current_weights.shape[0]):  # for each sample
@@ -248,8 +248,8 @@ def get_sample_weights(
         updatedWeight = posts.mean(1)
 
         # Prevent zero weights
-        updatedWeight = np.maximum(updatedWeight, epsilon)
-        updatedWeight = updatedWeight / updatedWeight.sum()  # Renormalize
+        # updatedWeight = np.maximum(updatedWeight, epsilon)
+        # updatedWeight = updatedWeight / updatedWeight.sum()  # Renormalize
         
         if np.isnan(updatedWeight).any():
             nanLocs = np.where(np.isnan(posts.T))[0]
@@ -258,17 +258,6 @@ def get_sample_weights(
             )
         updated_weights[i] = updatedWeight
     return updated_weights
-
-
-# def get_likelihood(observations, sample_indicators, component_params, weights):
-#     Likelihood = 0.0
-#     for sample_num, sample_mask in enumerate(sample_indicators.T):
-#         X = observations[sample_mask]
-#         sample_likelihood = density_utils.joint_densities(
-#             X, component_params, weights[sample_num]
-#         ).sum(axis=0)
-#         Likelihood += np.log(sample_likelihood).sum().item()
-#     return Likelihood
 
 
 def sample_specific_responsibilities(
@@ -377,9 +366,7 @@ def get_Gamma_update(
         - (2 * updated_Delta * v * (observations - updated_loc))
         + (updated_Delta**2 * w)
     )
-    gamma_update = (g * responsibilities).sum() / responsibilities.sum()
-    
-    return gamma_update
+    return (g * responsibilities).sum() / responsibilities.sum()
 
 
 def trunc_norm_moments(mu, sigma):

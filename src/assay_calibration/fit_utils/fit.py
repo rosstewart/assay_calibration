@@ -245,7 +245,7 @@ class Fit:
                 for num_components in component_range
             )
 
-        # these restrictions only apply to previous model version
+        # the below restrictions only apply to previous model version
         return models
         
         # models = [
