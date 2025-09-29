@@ -31,7 +31,8 @@ def component_posteriors(x, canonical_params, individual_sample_weights):
         [sps.skewnorm.logpdf(x.ravel(), *p) for p in canonical_params], axis=0
     )
     numerators = np.zeros_like(log_pdfs)
-    numerators = log_pdfs + np.log(individual_sample_weights)
+    with np.errstate(divide='ignore'): # ignore zero sample weight warning
+        numerators = log_pdfs + np.log(individual_sample_weights)
     d = np.zeros_like(numerators[0])
     d = logsumexp(numerators, axis=0)
     P = np.exp(numerators - d[None])  # type: ignore
@@ -77,6 +78,9 @@ def alternate_to_canonical(loc, Delta, Gamma):
     scale: scale parameter
     """
     try:
+        # if abs(Delta) < 1e-100: # otherwise a will be nan
+        #     a = 0.0
+        # else:
         a = np.sign(Delta) * np.sqrt(Delta**2 / Gamma)
     except ZeroDivisionError:
         raise ZeroDivisionError(
@@ -87,6 +91,7 @@ def alternate_to_canonical(loc, Delta, Gamma):
             f"Invalid skewness parameter: {a} from Delta: {Delta}, Gamma: {Gamma}"
         )
     scale = np.sqrt(Gamma + Delta**2)
+    
     return tuple(map(float, (a, loc, scale)))
 
 
