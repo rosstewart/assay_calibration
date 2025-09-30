@@ -71,5 +71,5 @@ def positive_likelihood_ratio_montonicity_constraint_violated(
         x_values, component_param_sets, weights_pathogenic
     )
     f_benign = density_utils.mixture_pdf(x_values, component_param_sets, weights_benign)
-    log_lr_plus = np.log(f_path) - np.log(f_benign)
+    log_lr_plus = f_path - f_benign # already log : np.log(f_path) - np.log(f_benign)
     return (np.diff(log_lr_plus) > 0).any()

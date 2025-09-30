@@ -249,17 +249,6 @@ def get_sample_weights(
     return updated_weights
 
 
-def get_likelihood(observations, sample_indicators, component_params, weights):
-    Likelihood = 0.0
-    for sample_num, sample_mask in enumerate(sample_indicators.T):
-        X = observations[sample_mask]
-        sample_likelihood = density_utils.joint_densities(
-            X, component_params, weights[sample_num]
-        ).sum(axis=0)
-        Likelihood += np.log(sample_likelihood).sum().item()
-    return Likelihood
-
-
 def sample_specific_responsibilities(
     observations, sample_indicators, component_params, weights
 ):

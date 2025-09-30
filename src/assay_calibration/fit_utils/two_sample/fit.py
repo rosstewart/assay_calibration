@@ -67,6 +67,7 @@ def single_fit(
     MAX_EM_ITERS = kwargs.get("max_em_iters", 10000)
     verbose = kwargs.get("verbose", True)
     check_submerged_duration = kwargs.get("check_submerged_duration", False)
+    MIN_SCALE = 1e-100
     
     submerge_steps = kwargs.get("submerge_steps", None)
     if submerge_steps is not None:# and not constrained:
@@ -203,6 +204,10 @@ def single_fit(
                 xlims,
                 iterNum=i + 1,
             )
+            # enforce minimum scale to accommodate numerical errors
+            for i, (a, loc, scale) in enumerate(updated_component_params):
+                if scale < MIN_SCALE:
+                    updated_component_params[i] = (a, loc, max(scale, MIN_SCALE))
     
             # check underwater duration
             if not constrained and check_submerged_duration:
