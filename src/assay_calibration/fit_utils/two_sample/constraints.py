@@ -58,46 +58,6 @@ def multicomponent_density_constraint_violated(
 
     # return False
 
-import numpy as np
-import scipy.special as sc
-
-def skewnorm_logpdf_mu_delta_gamma(x, mu, Delta, Gamma):
-    """
-    Log-PDF of a skew-normal distribution parameterized by (mu, Delta, Gamma).
-
-    Parameters
-    ----------
-    x : array_like
-        Points at which to evaluate the log-density.
-    mu : float
-        Location parameter.
-    Delta : float
-        Skewness scaling parameter.
-    Gamma : float
-        Variance-like scale parameter (must be > 0).
-
-    Returns
-    -------
-    logpdf : ndarray
-        Log density evaluated at x.
-    """
-    x = np.asarray(x)
-    if Gamma <= 0:
-        raise ValueError("Gamma must be positive.")
-
-    z = (Delta / np.sqrt(Gamma)) * (x - mu)
-
-    # log φ part
-    log_norm_const = -0.5 * np.log(2 * np.pi * Gamma)
-    quad_term = -0.5 * ((x - mu) ** 2) / Gamma
-
-    # log Φ part (use stable log_ndtr)
-    log_cdf = sc.log_ndtr(z)
-
-    return log_norm_const + quad_term + np.log(2.0) + log_cdf
-
-
-
 
 def positive_likelihood_ratio_montonicity_constraint_violated(
     component_param_sets,

@@ -59,8 +59,6 @@ def em_iteration(
                 xlims,
                 **kwargs,
             )
-            if constrained_updated_loc is None: # bsearch precision err
-                return None, None
         else:
             constrained_updated_loc = candidate_location
         candidateDelta = get_Delta_update(
@@ -79,8 +77,6 @@ def em_iteration(
                 xlims,
                 **kwargs,
             )
-            if constrained_updated_Delta is None: # bsearch precision err
-                return None, None
         else:
             constrained_updated_Delta = candidateDelta
 
@@ -102,8 +98,6 @@ def em_iteration(
                 xlims,
                 **kwargs,
             )
-            if constrained_updated_Gamma is None: # bsearch precision err
-                return None, None
         else:
             constrained_updated_Gamma = candidateGamma
 

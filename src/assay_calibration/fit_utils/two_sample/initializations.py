@@ -285,16 +285,30 @@ def fix_to_satisfy_density_constraint(component_parameters, xlims, **kwargs):
                     component_parameters[compI], component_parameters[compJ], xlims
                 ):
                     break
-                component_parameters[compI] = [
-                    component_parameters[compI][0] - 0.05 * abs(component_parameters[compI][0]),
-                    component_parameters[compI][1],
-                    component_parameters[compI][2],
-                ]
-                component_parameters[compJ] = [
-                    component_parameters[compJ][0] + 0.05 * abs(component_parameters[compJ][0]),
-                    component_parameters[compJ][1],
-                    component_parameters[compJ][2],
-                ]
+
+                if param_to_adjust == 'skew':
+                    component_parameters[compI] = [
+                        component_parameters[compI][0] - 0.05 * abs(component_parameters[compI][0]),
+                        component_parameters[compI][1],
+                        component_parameters[compI][2],
+                    ]
+                    component_parameters[compJ] = [
+                        component_parameters[compJ][0] + 0.05 * abs(component_parameters[compJ][0]),
+                        component_parameters[compJ][1],
+                        component_parameters[compJ][2],
+                    ]
+                else:
+                    component_parameters[compI] = [
+                        component_parameters[compI][0],
+                        component_parameters[compI][1],
+                        component_parameters[compI][2]*0.5,
+                    ]
+                    component_parameters[compI] = [
+                        component_parameters[compI][0],
+                        component_parameters[compI][1],
+                        component_parameters[compI][2]*0.5,
+                    ]
+                    
             
             still_violated = density_constraint_violated(
                 component_parameters[compI], component_parameters[compJ], xlims
