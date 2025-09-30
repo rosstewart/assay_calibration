@@ -426,9 +426,10 @@ def binary_search(
             upper_bound = midpoint
         else:
             lower_bound = midpoint
-    verify_binary_search_result(
+    if not verify_binary_search_result(
         lower_bound, current_params, component_index, parameter_index, xlims
-    )
+    ):
+        return None
     return lower_bound
 
 
@@ -465,7 +466,61 @@ def verify_binary_search_result(
         )
     # after making the update to current_canonical params, these should still satisfy the constraint
     if multicomponent_density_constraint_violated(test_params, xlims):
-        raise ValueError(
-            f"The binary search result for the {update_index } parameter update for component {component_index} does not satify the constraint"
+        print(
+            f"WARNING (SKIPPING): The binary search result for the {update_index } parameter update for component {component_index} does not satify the constraint"
         )
+        return False
+    return True
 
+
+# def em_iteration(
+#     observations, sample_indicators, current_component_params, current_weights
+# ):
+#     """
+#     Perform one iteration of the EM algorithm
+
+#     Arguments:
+#     observations: np.array (N,) : observed instances
+#     sample_indicators: np.array (N, S) : indicator matrix of which sample each observation belongs to
+#     current_component_params: list of tuples : [(a, loc, scale)_1, ..., (a, loc, scale)_K] : skewness, location, scale parameters of each component
+#     current_weights: np.array (S, K) : weights of each component for each sample
+
+#     Returns:
+#     updated_component_params: list of tuples : [(a, loc, scale)_1, ..., (a, loc, scale)_K] : updated skewness, location, scale parameters of each component
+#     updated_weights: np.array (S, K) : updated weights of each component for each sample
+#     """
+#     N, S = sample_indicators.shape
+#     K = len(current_component_params)
+#     assert K==2, "only implemented for K=2"
+#     assert current_weights.shape == (S, K)
+#     sample_indicators = validate_indicators(sample_indicators)
+#     assert sample_indicators.shape == (N, S)
+#     responsibilities = sample_specific_responsibilities(
+#         observations, sample_indicators, current_component_params, current_weights
+#     )
+#     updated_component_params = []
+#     for i, curr_comp_params in enumerate(
+#         current_component_params
+#     ):  # for each component
+#         updated_loc = get_location_update(
+#             observations, responsibilities[i], curr_comp_params
+#         )
+#         updated_Delta = get_Delta_update(
+#             updated_loc, observations, responsibilities[i], curr_comp_params
+#         )
+#         updated_Gamma = get_Gamma_update(
+#             updated_loc,
+#             updated_Delta,
+#             observations,
+#             responsibilities[i],
+#             curr_comp_params,
+#         )
+#         updated_component_params.append(
+#             density_utils.alternate_to_canonical(
+#                 updated_loc, updated_Delta, updated_Gamma
+#             )
+#         )
+#     updated_weights = get_sample_weights(
+#         observations, sample_indicators, updated_component_params, current_weights
+#     )
+#     return updated_component_params, updated_weights

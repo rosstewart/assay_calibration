@@ -24,7 +24,7 @@ def density_constraint_violated(params_1, params_2, xlims: Tuple[float, float]) 
 
 
 def multicomponent_density_constraint_violated(
-    param_sets, xlims: Tuple[float, float]
+    param_sets, xlims: Tuple[float, float], tolerance=0
 ) -> bool:
     """
     For each pair of distributions i and i+1 in param_sets,
@@ -36,6 +36,8 @@ def multicomponent_density_constraint_violated(
         of a skew normal distribution
 
     xlims: tuple : (xmin, xmax) : range of x values to check the density ratio
+    tolerance: float (default 0) : tolerance to allow for numerical precision errors
+                                       when converting parameters from alternate to canonical
 
     Returns:
     bool : True if any density ratio is not monotonic (constraint violated), False otherwise
@@ -44,10 +46,57 @@ def multicomponent_density_constraint_violated(
     log_pdfs = [sps.skewnorm.logpdf(x_values, *params) for params in param_sets]
 
     for i in range(len(log_pdfs) - 1):
-        if not np.all(np.diff(log_pdfs[i] - log_pdfs[i + 1]) < 0):
+        diffs = np.diff(log_pdfs[i] - log_pdfs[i + 1])
+        if np.any(diffs > tolerance): 
             return True
-
+    
     return False
+    
+    # for i in range(len(log_pdfs) - 1):
+    #     if not np.all(np.diff(log_pdfs[i] - log_pdfs[i + 1]) < 0):
+    #         return True
+
+    # return False
+
+import numpy as np
+import scipy.special as sc
+
+def skewnorm_logpdf_mu_delta_gamma(x, mu, Delta, Gamma):
+    """
+    Log-PDF of a skew-normal distribution parameterized by (mu, Delta, Gamma).
+
+    Parameters
+    ----------
+    x : array_like
+        Points at which to evaluate the log-density.
+    mu : float
+        Location parameter.
+    Delta : float
+        Skewness scaling parameter.
+    Gamma : float
+        Variance-like scale parameter (must be > 0).
+
+    Returns
+    -------
+    logpdf : ndarray
+        Log density evaluated at x.
+    """
+    x = np.asarray(x)
+    if Gamma <= 0:
+        raise ValueError("Gamma must be positive.")
+
+    z = (Delta / np.sqrt(Gamma)) * (x - mu)
+
+    # log φ part
+    log_norm_const = -0.5 * np.log(2 * np.pi * Gamma)
+    quad_term = -0.5 * ((x - mu) ** 2) / Gamma
+
+    # log Φ part (use stable log_ndtr)
+    log_cdf = sc.log_ndtr(z)
+
+    return log_norm_const + quad_term + np.log(2.0) + log_cdf
+
+
 
 
 def positive_likelihood_ratio_montonicity_constraint_violated(

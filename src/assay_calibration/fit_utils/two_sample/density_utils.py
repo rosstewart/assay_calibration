@@ -78,9 +78,6 @@ def alternate_to_canonical(loc, Delta, Gamma):
     scale: scale parameter
     """
     try:
-        # if abs(Delta) < 1e-100: # otherwise a will be nan
-        #     a = 0.0
-        # else:
         a = np.sign(Delta) * np.sqrt(Delta**2 / Gamma)
     except ZeroDivisionError:
         raise ZeroDivisionError(
@@ -95,12 +92,15 @@ def alternate_to_canonical(loc, Delta, Gamma):
     return tuple(map(float, (a, loc, scale)))
 
 
+
 def _get_delta(params):
     a = params[0]
     return a / np.sqrt(1 + a**2)
 
 
 def get_likelihood(observations, sample_indicators, component_params, weights):
+    if component_params is None or weights is None:
+        return -1 * np.inf
     Likelihood = 0.0
     for sample_num, sample_mask in enumerate(sample_indicators.T):
         X = observations[sample_mask]
