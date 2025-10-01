@@ -1,5 +1,6 @@
 from . import density_utils
 from .constraints import multicomponent_density_constraint_violated
+from typing import List, Tuple, Any
 import numpy as np
 import scipy.stats as sps
 
@@ -7,7 +8,7 @@ import scipy.stats as sps
 def em_iteration(
     observations,
     sample_indicators,
-    current_canonical_params,
+    current_component_params,
     current_weights,
     constrained,
     xlims,
@@ -19,7 +20,7 @@ def em_iteration(
     Arguments:
     observations: np.array (N,) : observed instances
     sample_indicators: np.array (N, S) : indicator matrix of which sample each observation belongs to
-    current_canonical_params: list of tuples : [(a, loc, scale)_1, ..., (a, loc, scale)_K] : skewness, location, scale parameters of each component
+    current_component_params: list of tuples : [(a, loc, scale)_1, ..., (a, loc, scale)_K] : skewness, location, scale parameters of each component
     current_weights: np.array (S, K) : weights of each component for each sample
     constrained: bool : whether to enforce the density constraint
     xlims: tuple : (xmin, xmax) : range of x values to check the density ratio
@@ -28,151 +29,121 @@ def em_iteration(
     updated_component_params: list of tuples : [(a, loc, scale)_1, ..., (a, loc, scale)_K] : updated skewness, location, scale parameters of each component
     updated_weights: np.array (S, K) : updated weights of each component for each sample
     """
-    
     if constrained and multicomponent_density_constraint_violated(
-        current_canonical_params, xlims
+        current_component_params, xlims
     ):
         raise ValueError("density constraint violated at start of em iteration,")
     N, S = sample_indicators.shape
-    K = len(current_canonical_params)
+    K = len(current_component_params)
     assert current_weights.shape == (S, K)
     sample_indicators = validate_indicators(sample_indicators)
     assert sample_indicators.shape == (N, S)
     responsibilities = sample_specific_responsibilities(
-        observations, sample_indicators, current_canonical_params, current_weights
+        observations, sample_indicators, current_component_params, current_weights
     )
-    current_alternate_params = [
-        density_utils.canonical_to_alternate(*p) for p in current_canonical_params
-    ]
-    updated_alternate_params = [
-        list(density_utils.canonical_to_alternate(*p)) for p in current_canonical_params
-    ]
+    updated_component_params: List[Tuple[Any]] = [
+        (None,),
+    ] * K
     for component_num in range(K):
-        if constrained and multicomponent_density_constraint_violated(
-            [
-                density_utils.alternate_to_canonical(*p)
-                for p in updated_alternate_params
-            ],
-            xlims,
-        ):
-            raise ValueError(
-                f"constraint violated at start of component {component_num} update"
-            )
         candidate_location = get_location_update(
             observations,
             responsibilities[component_num],
-            current_canonical_params[component_num],
+            current_component_params[component_num],
         )
         if constrained:
             constrained_updated_loc = get_constrained_location_update(
                 candidate_location,
                 component_num,
-                current_alternate_params,
-                updated_alternate_params,
+                current_component_params,
+                updated_component_params,
                 xlims,
                 **kwargs,
             )
         else:
             constrained_updated_loc = candidate_location
-        updated_alternate_params[component_num][0] = constrained_updated_loc
-        if constrained and multicomponent_density_constraint_violated(
-            [
-                density_utils.alternate_to_canonical(*p)
-                for p in updated_alternate_params
-            ],
-            xlims,
-        ):
-            raise ValueError(
-                f"density constraint violated after updating loc for component {component_num}"
-            )
         candidateDelta = get_Delta_update(
             constrained_updated_loc,
             observations,
             responsibilities[component_num],
-            current_canonical_params[component_num],
+            current_component_params[component_num],
         )
         if constrained:
             constrained_updated_Delta = get_constrained_Delta_update(
                 candidateDelta,
                 constrained_updated_loc,
                 component_num,
-                current_alternate_params,
-                updated_alternate_params,
+                current_component_params,
+                updated_component_params,
                 xlims,
                 **kwargs,
             )
         else:
             constrained_updated_Delta = candidateDelta
-        updated_alternate_params[component_num][1] = constrained_updated_Delta
-        if constrained and multicomponent_density_constraint_violated(
-            [
-                density_utils.alternate_to_canonical(*p)
-                for p in updated_alternate_params
-            ],
-            xlims,
-        ):
-            raise ValueError(
-                f"density constraint violated after updating Delta for component {component_num}"
-            )
+
         candidateGamma = get_Gamma_update(
             constrained_updated_loc,
             constrained_updated_Delta,
             observations,
             responsibilities[component_num],
-            current_canonical_params[component_num],
+            current_component_params[component_num],
         )
         if constrained:
             constrained_updated_Gamma = get_constrained_Gamma_update(
                 candidateGamma,
-                updated_alternate_params,
+                constrained_updated_loc,
+                constrained_updated_Delta,
                 component_num,
+                current_component_params,
+                updated_component_params,
                 xlims,
                 **kwargs,
             )
         else:
             constrained_updated_Gamma = candidateGamma
 
-        updated_alternate_params[component_num][2] = constrained_updated_Gamma
+        updated_component_params[component_num] = density_utils.alternate_to_canonical(  # type: ignore
+            constrained_updated_loc,
+            constrained_updated_Delta,
+            constrained_updated_Gamma,
+        )
         if constrained and multicomponent_density_constraint_violated(
             [
-                density_utils.alternate_to_canonical(*p)
-                for p in updated_alternate_params
+                *updated_component_params[: component_num + 1],
+                *current_component_params[component_num + 1 :],
             ],
             xlims,
         ):
             raise ValueError(
-                f"constraint violated after updating component {component_num} iter {kwargs.get('iterNum',-1)}\n{updated_alternate_params}\n{current_alternate_params}"
+                f"constraint violated after updating component {component_num} iter {kwargs.get('iterNum',-1)}\n{updated_component_params}\n{current_component_params}"
             )
-    updated_canonical = [
-        density_utils.alternate_to_canonical(*p) for p in updated_alternate_params
-    ]
-    if constrained and multicomponent_density_constraint_violated(
-        updated_canonical, xlims
-    ):
-        raise ValueError("failed to maintain monotonicity through end of em iteration")
+
     updated_weights = get_sample_weights(
-        observations, sample_indicators, updated_canonical, current_weights  # type: ignore
+        observations, sample_indicators, updated_component_params, current_weights
     )
-    return updated_canonical, updated_weights
+    return updated_component_params, updated_weights
 
 
 def get_constrained_location_update(
     candidate_location,
     component_num,
-    current_alternate_params,
-    updated_alternate_params,
+    current_component_params,
+    updated_component_params,
     xlims,
     **kwargs,
 ):
     """
     Perform binary search to get a location update near the unconstrained update that satisfies the density constraint
     """
+    # if component_num > 0:
+    #         bsearch_params = [updated_component_params[0], *current_component_params[1:]]
+    # else:
+    #     bsearch_params = [*current_component_params]
     bsearch_params = []
-    for ki in range(len(current_alternate_params)):
+    for ki in range(len(current_component_params)):
         if ki < component_num:
-            bsearch_params.append(updated_alternate_params[ki])
+            bsearch_params.append(updated_component_params[ki])
         else:
-            bsearch_params.append(current_alternate_params[ki])
+            bsearch_params.append(current_component_params[ki])
     constrained_updated_loc = binary_search(
         candidate_location,
         bsearch_params,
@@ -188,21 +159,27 @@ def get_constrained_Delta_update(
     candidate_Delta,
     constrained_updated_loc,
     component_num,
-    current_alternate_params,
-    updated_alternate_params,
+    current_component_params,
+    updated_component_params,
     xlims,
     **kwargs,
 ):
-    K = len(current_alternate_params)
+    K = len(current_component_params)
     bsearch_params = []
     for ki in range(K):
         if ki < component_num:
-            bsearch_params.append(updated_alternate_params[ki])
+            bsearch_params.append(updated_component_params[ki])
         elif ki > component_num:
-            bsearch_params.append(current_alternate_params[ki])
+            bsearch_params.append(current_component_params[ki])
         else:
-            currentDelta, currentGamma = current_alternate_params[component_num][1:]
-            bsearch_params.append((constrained_updated_loc, currentDelta, currentGamma))
+            _, Delta, Gamma = density_utils.canonical_to_alternate(
+                *current_component_params[ki]
+            )
+            bsearch_params.append(
+                density_utils.alternate_to_canonical(
+                    constrained_updated_loc, Delta, Gamma
+                )
+            )
     constrained_updated_Delta = binary_search(
         candidate_Delta,
         bsearch_params,
@@ -216,14 +193,33 @@ def get_constrained_Delta_update(
 
 def get_constrained_Gamma_update(
     candidate_Gamma,
-    updated_alternate_params,
+    constrained_updated_loc,
+    constrained_updated_Delta,
     component_num,
+    current_component_params,
+    updated_component_params,
     xlims,
     **kwargs,
 ):
+    K = len(current_component_params)
+    bsearch_params = []
+    for ki in range(K):
+        if ki < component_num:
+            bsearch_params.append(updated_component_params[ki])
+        elif ki > component_num:
+            bsearch_params.append(current_component_params[ki])
+        else:
+            _, _, Gamma = density_utils.canonical_to_alternate(
+                *current_component_params[ki]
+            )
+            bsearch_params.append(
+                density_utils.alternate_to_canonical(
+                    constrained_updated_loc, constrained_updated_Delta, Gamma
+                )
+            )
     constrained_updated_Gamma = binary_search(
         candidate_Gamma,
-        updated_alternate_params,
+        bsearch_params,
         component_num,
         2,
         xlims,
@@ -233,28 +229,21 @@ def get_constrained_Gamma_update(
 
 
 def get_sample_weights(
-    observations, sample_indicators, updated_canonical_params, current_weights
+    observations, sample_indicators, updated_component_params, current_weights
 ):
-    # epsilon = 1e-300  # Small value to prevent zeros
-    
     updated_weights = np.zeros_like(current_weights)
     for i in range(current_weights.shape[0]):  # for each sample
         sample_observations = observations[
             sample_indicators[:, i]
         ]  # get all observations for this sample
         posts = density_utils.component_posteriors(
-            sample_observations, updated_canonical_params, current_weights[i]
+            sample_observations, updated_component_params, current_weights[i]
         )  # Get the component posteriors (responsibilities) using the updated component params and current weights
         updatedWeight = posts.mean(1)
-
-        # Prevent zero weights
-        # updatedWeight = np.maximum(updatedWeight, epsilon)
-        # updatedWeight = updatedWeight / updatedWeight.sum()  # Renormalize
-        
         if np.isnan(updatedWeight).any():
             nanLocs = np.where(np.isnan(posts.T))[0]
             raise ValueError(
-                f"about to set updated weight to {updatedWeight}\n{sample_observations[nanLocs]}\n{updated_canonical_params}\n{current_weights[i]}\n{nanLocs}\n{posts.T[nanLocs]}"
+                f"about to set updated weight to {updatedWeight}\n{sample_observations[nanLocs]}\n{updated_component_params}\n{current_weights[i]}\n{nanLocs}\n{posts.T[nanLocs]}"
             )
         updated_weights[i] = updatedWeight
     return updated_weights
@@ -296,30 +285,26 @@ def validate_indicators(Indicators):
     return Indicators.astype(bool)
 
 
-def get_location_update(observations, responsibilities, canonical_component_params):
+def get_location_update(observations, responsibilities, component_params):
     """
     Calculate the location update for the given component
 
     Arguments:
     observations: np.array (N,) : observed instances
     responsibilities: np.array (N,) : posterior probabilities of each component given x, conditioned on the observed instance's sample weights
-    canonical_component_params: tuple : (a, loc, scale) : skewness, location, scale parameters of the component from the previous iteration
+    component_params: tuple : (a, loc, scale) : skewness, location, scale parameters of the component from the previous iteration
 
     Returns:
     updated_loc: float : updated location parameter
     """
     assert observations.shape == responsibilities.shape
-    v, w = get_truncated_normal_moments(observations, canonical_component_params)
-    (_, Delta, Gamma) = density_utils.canonical_to_alternate(
-        *canonical_component_params
-    )
+    v, w = get_truncated_normal_moments(observations, component_params)
+    (_, Delta, Gamma) = density_utils.canonical_to_alternate(*component_params)
     m = observations - v * Delta
     return (m * responsibilities).sum() / responsibilities.sum()
 
 
-def get_Delta_update(
-    updated_loc, observations, responsibilities, canonical_component_params
-):
+def get_Delta_update(updated_loc, observations, responsibilities, component_params):
     """
     Calculate the Delta update for the given component
 
@@ -327,24 +312,20 @@ def get_Delta_update(
     updated_loc: float : updated location parameter from this iteration
     observations: np.array (N,) : observed instances
     responsibilities: np.array (N,) : posterior probabilities of each component given x, conditioned on the observed instance's sample weights
-    canonical_component_params: tuple : (a, loc, scale) : skewness, location, scale parameters of the component from the previous iteration
+    component_params: tuple : (a, loc, scale) : skewness, location, scale parameters of the component from the previous iteration
 
     Returns:
     updated_Delta: float : updated Delta parameter
     """
 
     assert observations.shape == responsibilities.shape
-    v, w = get_truncated_normal_moments(observations, canonical_component_params)
+    v, w = get_truncated_normal_moments(observations, component_params)
     d = v * (observations - updated_loc)
-    return (d * responsibilities).sum() / responsibilities.sum()
+    return (d * responsibilities).sum() / (w * responsibilities).sum()
 
 
 def get_Gamma_update(
-    updated_loc,
-    updated_Delta,
-    observations,
-    responsibilities,
-    canonical_component_params,
+    updated_loc, updated_Delta, observations, responsibilities, component_params
 ):
     """
     Calculate the Gamma update for the given component
@@ -354,13 +335,13 @@ def get_Gamma_update(
     updated_Delta: float : updated Delta parameter from this iteration
     observations: np.array (N,) : observed instances
     responsibilities: np.array (N,) : posterior probabilities of each component given x, conditioned on the observed instance's sample weights
-    canonical_component_params: tuple : (a, loc, scale) : skewness, location, scale parameters of the component from the previous iteration
+    component_params: tuple : (a, loc, scale) : skewness, location, scale parameters of the component from the previous iteration
 
     Returns:
     updated_Gamma: float : updated Gamma parameter
     """
     assert observations.shape == responsibilities.shape
-    v, w = get_truncated_normal_moments(observations, canonical_component_params)
+    v, w = get_truncated_normal_moments(observations, component_params)
     g = (
         (observations - updated_loc) ** 2
         - (2 * updated_Delta * v * (observations - updated_loc))
@@ -383,9 +364,9 @@ def trunc_norm_moments(mu, sigma):
     return m1, m2
 
 
-def get_truncated_normal_moments(observations, canonical_component_params):
-    _delta = density_utils._get_delta(canonical_component_params)
-    loc, scale = canonical_component_params[1:]
+def get_truncated_normal_moments(observations, component_params):
+    _delta = density_utils._get_delta(component_params)
+    loc, scale = component_params[1:]
     truncated_normal_loc = _delta / scale * (observations - loc)
     truncated_normal_scale = np.sqrt(1 - _delta**2)
     v, w = trunc_norm_moments(truncated_normal_loc, truncated_normal_scale)
@@ -393,19 +374,14 @@ def get_truncated_normal_moments(observations, canonical_component_params):
 
 
 def binary_search(
-    candidate_value,
-    current_alternate_params,
-    component_index,
-    parameter_index,
-    xlims,
-    msg="",
+    candidate_value, current_params, component_index, parameter_index, xlims, msg=""
 ):
     """
     Perform a binary search to find the value of the parameter that satisfies the pairwise component density ratio constraint
 
     Arguments:
     candidate_value: float : candidate value of the parameter ** IN ALTERNATE PARAMETERIZATION **
-    current_alternate_params: list [tuple : (mu, Delta, Gamma) ]: alternate parameterization of each of the K components
+    current_params: list [tuple : (a, loc, scale) ]: skewness, location, scale parameters for each of the K components
     component_index: int : index of the component to update
     parameter_index: int : index of the parameter to update
     xlims: tuple : (xmin, xmax) : range of x values to check the density ratio
@@ -413,63 +389,66 @@ def binary_search(
     Returns:
     float : updated parameter value
     """
-
-    if multicomponent_density_constraint_violated(
-        [
-            list(density_utils.alternate_to_canonical(*param))
-            for param in current_alternate_params
-        ],
-        xlims,
-    ):
+    if multicomponent_density_constraint_violated(current_params, xlims):
         raise ValueError(f"constraint already violated before bsearch {msg}")
+    current_alternate_params = [
+        list(density_utils.canonical_to_alternate(*param)) for param in current_params
+    ]
+    # print(f'old version bsearch candidate {candidate_value} param {parameter_index}, alt params: {current_alternate_params}')
     lower_bound = current_alternate_params[component_index][parameter_index]
     upper_bound = candidate_value
-    search_iter = 0
-    while abs(upper_bound - lower_bound) > 1e-12:
-        search_iter += 1
-        updated_alternate_params = [list(p) for p in current_alternate_params]
-        updated_alternate_params[component_index][parameter_index] = lower_bound
-        if multicomponent_density_constraint_violated(
-            list(
-                map(
-                    lambda tup: density_utils.alternate_to_canonical(*tup),
-                    updated_alternate_params,
-                )
-            ),
-            xlims,
-        ):
-            raise ValueError(
-                f"lower bound does not satisfy constraint at search iter {search_iter} - component {component_index} - parameter {parameter_index}"
-            )
+    while abs(upper_bound - lower_bound) > 1e-4:
         midpoint = (upper_bound + lower_bound) / 2
-
-        updated_alternate_params[component_index][parameter_index] = midpoint
+        updated_params = current_alternate_params.copy() # shallow copy
+        updated_params = [list(p) for p in current_alternate_params]
+        updated_params[component_index][parameter_index] = midpoint
         if multicomponent_density_constraint_violated(
-            list(map(lambda tup: density_utils.alternate_to_canonical(*tup), updated_alternate_params)),  # type: ignore
+            list(map(lambda tup: density_utils.alternate_to_canonical(*tup), updated_params)),  # type: ignore
             xlims,
         ):
             upper_bound = midpoint
         else:
             lower_bound = midpoint
     verify_binary_search_result(
-        lower_bound, current_alternate_params, component_index, parameter_index, xlims
+        lower_bound, current_params, component_index, parameter_index, xlims
     )
     return lower_bound
 
 
 def verify_binary_search_result(
     constrained_Alternate_parameter_value,
-    current_alternate_params,
+    current_canonical_params,
     component_index,
-    parameter_index,
+    update_index,
     xlims,
 ):
-    current_alternate_component = list(current_alternate_params[component_index])
-    current_alternate_component[parameter_index] = constrained_Alternate_parameter_value
-    if multicomponent_density_constraint_violated(
-        [density_utils.alternate_to_canonical(*p) for p in current_alternate_params],
-        xlims,
-    ):
-        raise ValueError(
-            f"The binary search result for the {parameter_index } parameter update for component {component_index} does not satify the constraint"
+    test_params = [p for p in current_canonical_params] # copy of original to not modify in place
+    mu, Delta, Gamma = density_utils.canonical_to_alternate(
+        *current_canonical_params[component_index]
+    )
+    if update_index == 0:
+        # updated mu
+        test_params[
+            component_index
+        ] = density_utils.alternate_to_canonical(
+            constrained_Alternate_parameter_value, Delta, Gamma
         )
+    elif update_index == 1:
+        test_params[
+            component_index
+        ] = density_utils.alternate_to_canonical(
+            mu, constrained_Alternate_parameter_value, Gamma
+        )
+    else:
+        # updated Gamma
+        test_params[
+            component_index
+        ] = density_utils.alternate_to_canonical(
+            mu, Delta, constrained_Alternate_parameter_value
+        )
+    # after making the update to current_canonical params, these should still satisfy the constraint
+    if multicomponent_density_constraint_violated(test_params, xlims):
+        raise ValueError(
+            f"The binary search result for the {update_index } parameter update for component {component_index} does not satify the constraint"
+        )
+

@@ -13,36 +13,16 @@ import logging
 import sys
 from joblib import Parallel, delayed
 from two_sample.fit import single_fit
+from two_sample.density_utils import get_likelihood
 
 logging.basicConfig()
 logging.root.setLevel(logging.ERROR)
 logger = logging.getLogger(__name__)
 
 
-def tryToFit(observations, sample_indicators, num_components, constrained, init_method, **kwargs):
-    # fit either initializing with method of moments or kmeans
-    # try:
-    fit_results = single_fit(observations, sample_indicators, num_components, constrained, init_method, **kwargs)
-    # except ValueError as e:
-    #     print(e)
+def tryToFit(observations, sample_indicators, num_components, constrained, init_method, init_constraint_adjustment, **kwargs):
+    fit_results = single_fit(observations, sample_indicators, num_components, constrained, init_method, init_constraint_adjustment, **kwargs)
     return fit_results
-    
-    
-    # model = MulticomponentCalibrationModel(num_components)
-    # try:
-    #     model.fit(observations, sample_indicators, **kwargs)
-    # except (Exception, AttributeError) as e:
-    #     print(f"Failed to fit model\n {e}")
-    #     print(e)
-    #     if not hasattr(model, "_log_likelihoods"):
-    #         model._log_likelihoods = []
-    #     model._log_likelihoods.append(-np.inf)
-    #     return model
-    # if kwargs.get(
-    #     "check_monotonic", True
-    # ) and model.any_components_violate_monotonicity(**kwargs):
-    #     raise ValueError("Fitted model violates monotonicity")
-    # return model
 
 
 def get_bootstrap_indices(dataset_size):
@@ -67,7 +47,7 @@ def get_bootstrap_indices(dataset_size):
     return train_indices, test_indices
 
 
-def sample_specific_bootstrap(sample_assignments):
+def sample_specific_bootstrap(sample_assignments, bootstrap_seed=None):
     """
     Bootstrap each sample separately
 
@@ -85,7 +65,8 @@ def sample_specific_bootstrap(sample_assignments):
     """
     train_indices = []
     eval_indices = []
-    print(sample_assignments.sum(axis=0))
+    rng = np.random.RandomState(bootstrap_seed) # seeds are different on each subsequent call but the same across runs
+    
     for sample_num in range(sample_assignments.shape[1]):
         sample_indices = np.where(sample_assignments[:, sample_num])[0]
         if not len(sample_indices):
@@ -98,9 +79,7 @@ def sample_specific_bootstrap(sample_assignments):
         else:
             sample_train = []
             while not len(sample_eval) and fails < 100:
-                sample_train = np.random.choice(
-                    sample_indices, size=len(sample_indices), replace=True
-                )
+                sample_train = rng.choice(sample_indices, size=len(sample_indices), replace=True)
                 sample_eval = np.setdiff1d(sample_indices, sample_train)
                 fails += 1
             if fails >= 100:
@@ -148,6 +127,8 @@ class Fit:
             The number of cores to use for parallel processing
         bootstrap -- bool (default True)
             Whether to use bootstrap sampling
+        - bootstrap_seed : int (default None)
+            Seed to randomly sample during bootstrap
         - check_convergence : bool (default True)
             If True, check for convergence in the log likelihood
         - verbose : bool (default False)
@@ -160,6 +141,8 @@ class Fit:
             If True, check for monotonicity between each pair of neighboring components
         - submerge_steps : int (default None)
             Max number of steps to explore without constraint. Halves after every limit hit. check_monotonic must be True.
+        - init_constraint_adjustment_param : str (default "skew")
+            Param to adjust during intialization to satisfy constraint. Either "skew", "scale", or "random".
         - init_strategy : str (default random)
             pick one - (kmeans, method_of_moments, random)
         - score_min : float | int (default None)
@@ -169,8 +152,6 @@ class Fit:
         """
         NUM_FITS = kwargs.get("num_fits", 100)
         observations = self.scoreset.scores
-        # score_min = kwargs.get("score_min", observations.min())
-        # score_max = kwargs.get("score_max", observations.max())
         kwargs["score_min"] = min(
             kwargs.get("score_min", observations.min()), self.scoreset.scores.min()
         )
@@ -190,8 +171,9 @@ class Fit:
             print(f"sample counts: {sample_assignments.sum(0)}")
         train_indices = np.arange(len(observations))
         val_indices = np.array([], dtype=int)
+        bootstrap_seed = kwargs.get("bootstrap_seed", None)
         if kwargs.get("bootstrap", True):
-            train_indices, val_indices = sample_specific_bootstrap(sample_assignments)
+            train_indices, val_indices = sample_specific_bootstrap(sample_assignments, bootstrap_seed)
         constrained = kwargs.get("check_monotonic", True)
 
         # init_methods contains the desired method for each fit
@@ -200,11 +182,19 @@ class Fit:
             init_methods = np.full(NUM_FITS, init_method) 
         else:
             init_methods = np.random.choice(["kmeans", "method_of_moments"], size=NUM_FITS)
-        
+
+        # adjust skew or scale during initial constraint adjustment
+        init_constraint_adjustment = kwargs.get("init_constraint_adjustment_param", "skew")
+        if init_constraint_adjustment != 'random':
+            init_constraint_adjustments = np.full(NUM_FITS, init_constraint_adjustment) 
+        else:
+            init_constraint_adjustments = np.random.choice(["skew", "scale"], size=NUM_FITS)
+
         val_observations = observations[val_indices]
         val_sample_assignments = sample_assignments[val_indices]
         train_observations = observations[train_indices]
         train_sample_assignments = sample_assignments[train_indices]
+        
 
         core_limit = kwargs.get("core_limit", -1)
 
@@ -220,6 +210,7 @@ class Fit:
                     num_components,
                     constrained,
                     init_methods[i],
+                    init_constraint_adjustments[i],
                     **kwargs,
                 )
                 for i in range(NUM_FITS)
@@ -239,48 +230,26 @@ class Fit:
                     num_components,
                     constrained,
                     init_methods[i],
+                    init_constraint_adjustments[i],
                     **kwargs,
                 )
                 for i in range(NUM_FITS)
                 for num_components in component_range
             )
 
-        # the below restrictions only apply to previous model version
-        return models
-        
-        # models = [
-        #     m
-        #     for m in models
-        #     # if isinstance(m, MulticomponentCalibrationModel)
-        #     # and not np.isinf(m._log_likelihoods[-1])
-        #     if not np.isinf(m._log_likelihoods[-1])
-        # ]
-        # for model in models:
-        #     if model.any_components_violate_monotonicity(**kwargs):
-        #         print("Fitted model violates monotonicity")
-        #         model._log_likelihoods.append(-np.inf)
-        # models = sorted(models, key=lambda m: m._log_likelihoods[-1], reverse=True)
-        # if not len(models):
-        #     raise ValueError("No models succeeded in fitting")
-        # else:
-        #     if kwargs.get("verbose", False):
-        #         print(f"Successfully fit {len(models)} models")
-        # if kwargs.get("bootstrap", True):
-        #     val_lls = [
-        #         m.get_log_likelihood(val_observations, val_sample_assignments)
-        #         for m in models
-        #     ]
-        #     best_idx = np.nanargmax(val_lls)
-        #     best_fit = models[best_idx]
-        #     if kwargs.get("verbose", False):
-        #         print(f"Best fit: {best_fit.get_params()}")
-        #     if np.isinf(val_lls[best_idx]):
-        #         raise ValueError("Failed to fit model")
-        # else:
-        #     best_fit = models[0]
-        # self.model = best_fit
-        # self._fit_eval()
+        # calculate best model and val LL
+        if kwargs.get("bootstrap", True):
+            val_lls = [get_likelihood(val_observations, val_sample_assignments, m['component_params'], m['weights']) / len(val_sample_assignments) for m in models]
+            best_idx = np.nanargmax(val_lls)
+            best_fit = models[best_idx]
+            best_val_ll = val_lls[best_idx]
 
+            return models, best_idx, best_val_ll
+        
+        return models, None, None
+
+
+        
     def joint_densities(self, x, sampleNum):
         """
         weighted pdfs of a mixture of skew normal distributions
