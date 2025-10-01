@@ -1,5 +1,7 @@
 import sys
 from pathlib import Path
+import os
+import pickle
 
 sys.path.append(str(Path(__file__).resolve().parent))
 sys.path.append(str(Path(__file__).resolve().parent.parent))
@@ -249,6 +251,130 @@ class Fit:
         return models, None, None
 
 
+    def generate_fit_jobs(self, component_range, **kwargs):
+        """
+        Generate job specifications for fits without executing them.
+        This allows for better parallelization strategies.
+        
+        Returns:
+            list of dict: Job specifications containing all parameters needed for each fit
+        """
+        NUM_FITS = kwargs.get("num_fits", 100)
+        observations = self.scoreset.scores
+        kwargs["score_min"] = min(
+            kwargs.get("score_min", observations.min()), self.scoreset.scores.min()
+        )
+        kwargs["score_max"] = max(
+            kwargs.get("score_max", observations.max()), self.scoreset.scores.max()
+        )
+        
+        sample_assignments = self.scoreset.sample_assignments
+        sample_assignments = makeOneHot(sample_assignments)
+        include = sample_assignments.any(axis=1) & ~np.isnan(observations)
+        observations = observations[include]
+        sample_assignments = sample_assignments[include]
+        
+        train_indices = np.arange(len(observations))
+        val_indices = np.array([], dtype=int)
+        bootstrap_seed = kwargs.get("bootstrap_seed", None)
+        do_bootstrap = kwargs.get("bootstrap", True)
+        
+        if bootstrap_seed is not None:
+            assert do_bootstrap
+        
+        if do_bootstrap:
+            train_indices, val_indices = sample_specific_bootstrap(sample_assignments, bootstrap_seed)
+        
+        constrained = kwargs.get("check_monotonic", True)
+        
+        # Initialize methods
+        init_method = kwargs.get("init_strategy", "random")
+        if init_method != 'random':
+            init_methods = np.full(NUM_FITS, init_method)
+        else:
+            np.random.seed(bootstrap_seed)  # Ensure reproducibility
+            init_methods = np.random.choice(["kmeans", "method_of_moments"], size=NUM_FITS)
+        
+        init_constraint_adjustment = kwargs.get("init_constraint_adjustment_param", "skew")
+        if init_constraint_adjustment != 'random':
+            init_constraint_adjustments = np.full(NUM_FITS, init_constraint_adjustment)
+        else:
+            np.random.seed(bootstrap_seed)
+            init_constraint_adjustments = np.random.choice(["skew", "scale"], size=NUM_FITS)
+        
+        # Generate job specifications
+        jobs = []
+        for i in range(NUM_FITS):
+            for num_components in component_range:
+                job = {
+                    'job_id': f"b{bootstrap_seed}_f{i}_c{num_components}",
+                    'bootstrap_seed': bootstrap_seed,
+                    'fit_idx': i,
+                    'num_components': num_components,
+                    'train_observations': observations[train_indices],
+                    'train_sample_assignments': sample_assignments[train_indices],
+                    'val_observations': observations[val_indices] if len(val_indices) > 0 else None,
+                    'val_sample_assignments': sample_assignments[val_indices] if len(val_indices) > 0 else None,
+                    'constrained': constrained,
+                    'init_method': init_methods[i],
+                    'init_constraint_adjustment': init_constraint_adjustments[i],
+                    'kwargs': kwargs.copy()
+                }
+                jobs.append(job)
+        
+        return jobs
+    
+    @staticmethod
+    def execute_fit_job(job):
+        """Execute a single fit job and save immediately."""
+        # Check if already completed (for resumability)
+        save_path = f"{job['save_dir']}/{job['dataset_name']}_b{job['bootstrap_seed']}_c{job['num_components']}_f{job['fit_idx']}.pkl"
+        if os.path.exists(save_path):
+            # print(f"Skipping existing: {save_path}")
+            return None
+    
+        # print(f"Running {save_path}...",flush=True)
+        
+        try:
+            result = tryToFit(
+                job['train_observations'],
+                job['train_sample_assignments'],
+                job['num_components'],
+                job['constrained'],
+                job['init_method'],
+                job['init_constraint_adjustment'],
+                verbose=False,
+                **job['kwargs']
+            )
+            
+            # Calculate validation likelihood
+            val_ll = None
+            if job['val_observations'] is not None:
+                val_ll = get_likelihood(
+                    job['val_observations'],
+                    job['val_sample_assignments'],
+                    result['component_params'],
+                    result['weights']
+                ) / len(job['val_sample_assignments'])
+            
+            # Save to disk
+            save_data = {
+                'dataset_name': job['dataset_name'],
+                'bootstrap_seed': job['bootstrap_seed'],
+                'num_components': job['num_components'],
+                'fit_idx': job['fit_idx'],
+                'fit': result,
+                'val_ll': val_ll
+            }
+            
+            with open(save_path, 'wb') as f:
+                pickle.dump(save_data, f)
+            
+        except Exception as e:
+            print(f"Failed: {job['dataset_name']} b{job['bootstrap_seed']} c{job['num_components']} f{job['fit_idx']}: {e}")
+
+
+        
         
     def joint_densities(self, x, sampleNum):
         """
