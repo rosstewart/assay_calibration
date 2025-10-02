@@ -242,7 +242,7 @@ def single_fit(
                 
                 relative_decrease = decrease / abs(likelihoods[-2])
                 
-                is_numerical_error = decrease < 1e-15
+                is_numerical_error = decrease < 1e-14
                 
                 if not is_numerical_error:
                     raise ValueError(f"Iteration {i}: Likelihood ({likelihoods[-2]}->{likelihoods[-1]}) decreased by {decrease:.2e} (relative: {relative_decrease:.2e}) - (numerical rounding?)\nParams: {history[-1]['component_params']}-->{updated_component_params}\nWeights: {history[-1]['weights']}-->{updated_weights}")

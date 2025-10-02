@@ -346,6 +346,9 @@ class Fit:
                 verbose=False,
                 **job['kwargs']
             )
+
+            result.pop('history', None) # free up space
+            result.pop('likelihoods', None) # free up space
             
             # Calculate validation likelihood
             val_ll = None
@@ -369,6 +372,8 @@ class Fit:
             
             with open(save_path, 'wb') as f:
                 pickle.dump(save_data, f)
+
+            return save_data
             
         except Exception as e:
             print(f"Failed: {job['dataset_name']} b{job['bootstrap_seed']} c{job['num_components']} f{job['fit_idx']}: {e}")
