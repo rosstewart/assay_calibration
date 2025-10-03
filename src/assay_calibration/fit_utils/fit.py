@@ -370,8 +370,8 @@ class Fit:
                 'val_ll': val_ll
             }
             
-            with open(save_path, 'wb') as f:
-                pickle.dump(save_data, f)
+            # with open(save_path, 'wb') as f:
+            #     pickle.dump(save_data, f)
 
             return save_data
             
