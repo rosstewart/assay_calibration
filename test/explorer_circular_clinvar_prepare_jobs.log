@@ -1,0 +1,48 @@
+[Parallel(n_jobs=30)]: Using backend LokyBackend with 30 concurrent workers.
+================================================================================
+HPC Job Array Setup - Consolidated Bootstrap Fits
+================================================================================
+Generating consolidated jobs from 17 datasets...
+Target array size: 1000
+Parallel workers: 30
+
+Loading datasets and generating jobs...
+[Parallel(n_jobs=30)]: Done   1 tasks      | elapsed:   10.8s
+[Parallel(n_jobs=30)]: Done   2 out of  17 | elapsed:   12.5s remaining:  1.6min
+[Parallel(n_jobs=30)]: Done   4 out of  17 | elapsed:   15.4s remaining:   50.2s
+[Parallel(n_jobs=30)]: Done   6 out of  17 | elapsed:   19.1s remaining:   35.0s
+[Parallel(n_jobs=30)]: Done   8 out of  17 | elapsed:   22.3s remaining:   25.1s
+[Parallel(n_jobs=30)]: Done  10 out of  17 | elapsed:   30.9s remaining:   21.6s
+[Parallel(n_jobs=30)]: Done  12 out of  17 | elapsed:   50.8s remaining:   21.2s
+[Parallel(n_jobs=30)]: Done  14 out of  17 | elapsed:  1.1min remaining:   13.7s
+[Parallel(n_jobs=30)]: Done  17 out of  17 | elapsed:  2.4min finished
+
+Flattening and organizing jobs...
+Total consolidated jobs: 17,000
+  (Each job runs 100 fits for 2c + 100 fits for 3c = 200 fits)
+
+Optimal arrangement:
+  Jobs per array task: 17
+  Number of array tasks: 1000
+  Fits per array task: 3,400
+
+Saving job files...
+Job index saved to: /data/ross/assay_calibration/explorer_jobs_circular_clinvar/job_index.json
+
+SLURM script saved to: /data/ross/assay_calibration/explorer_jobs_circular_clinvar/submit_array.sh
+Estimated time per array task: 01:16:00
+
+================================================================================
+Setup complete!
+================================================================================
+
+Configuration:
+  Total consolidated jobs: 17,000
+  Array tasks: 1,000
+  Jobs per array task: 17
+
+Next steps:
+1. Review: /data/ross/assay_calibration/explorer_jobs_circular_clinvar/submit_array.sh
+2. Submit: cd /data/ross/assay_calibration/explorer_jobs_circular_clinvar && sbatch submit_array.sh
+3. Monitor: python /data/ross/assay_calibration/explorer_jobs_circular_clinvar/check_status.py
+4. Logs: /data/ross/assay_calibration/explorer_jobs_circular_clinvar/logs/

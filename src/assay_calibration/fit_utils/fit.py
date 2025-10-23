@@ -1,22 +1,24 @@
 import sys
 from pathlib import Path
 import os
-import pickle
+import json
 
-sys.path.append(str(Path(__file__).resolve().parent))
-sys.path.append(str(Path(__file__).resolve().parent.parent))
-# from multicomp_model import MulticomponentCalibrationModel
-from data_utils.dataset import Scoreset, BasicScoreset
+sys.path.append(str(Path(__file__).resolve().parents[2]))
+# sys.path.append(str(Path(__file__).resolve().parent.parent))
+from assay_calibration.data_utils.dataset import Scoreset, BasicScoreset
 from scipy.stats import skewnorm
 import numpy as np
 from typing import Tuple
-from evidence_thresholds import get_tavtigian_constant
+from .evidence_thresholds import get_tavtigian_constant
 import logging
 import sys
+from typing import List, Dict,Tuple
 from joblib import Parallel, delayed
-from two_sample.fit import single_fit
-from two_sample.density_utils import get_likelihood
-
+from .two_sample.fit import single_fit
+from .two_sample.density_utils import get_likelihood
+from .utils import serialize_dict
+import time
+from tqdm.auto import tqdm
 logging.basicConfig()
 logging.root.setLevel(logging.ERROR)
 logger = logging.getLogger(__name__)
@@ -416,28 +418,19 @@ class Fit:
             u = np.unique(sample_scores)
             u.sort()
             self._eval_metrics[sample_name] = {}
-            self._eval_metrics[sample_name]["empirical_cdf"] = self.model.empirical_cdf(
+            self._eval_metrics[sample_name]["empirical_cdf"] = empirical_cdf(
                 u
             )
-            self._eval_metrics[sample_name]["model_cdf"] = self.model.get_sample_cdf(
-                u, sampleNum
+            self._eval_metrics[sample_name]["model_cdf"] = get_sample_cdf(
+                self.fit_result['component_params'],
+                 self.fit_result['weights'],
+                   u,
+                   sampleNum
             )
-            self._eval_metrics[sample_name]["cdf_dist"] = self.model.yang_dist(
+            self._eval_metrics[sample_name]["cdf_dist"] = yang_dist(
                 self._eval_metrics[sample_name]["empirical_cdf"],
                 self._eval_metrics[sample_name]["model_cdf"],
             )
-
-    def scoreset_is_flipped(self):
-        """
-        Check if the scoreset is flipped
-        """
-        print("Unsure if this is applicable for multi-component models")
-        _isflipped = (
-            self.model.sample_weights[0, 0] < self.model.sample_weights[1, 0]
-            and self.fit_result["component_params"][0][1]
-            < self.fit_result["component_params"][1][1]
-        )
-        return _isflipped
 
     def get_prior_estimate(self, population_sample: np.ndarray, **kwargs) -> float:
         """
@@ -456,6 +449,8 @@ class Fit:
             The index of the benign component in the weights matrix
         tolerance -- float (default 1e-6)
             The tolerance for convergence of the prior estimate
+        max_em_steps -- int (default 10000)
+            Maximum number of steps to run EM update for prior estimate
 
         Returns:
         --------------------------------
@@ -464,50 +459,62 @@ class Fit:
         """
         pathogenic_idx = kwargs.get("pathogenic_idx", 0)
         benign_idx = kwargs.get("benign_idx", 1)
-        pathogenic_density = self.model.get_sample_density(
-            population_sample, pathogenic_idx
-        )
-        benign_density = self.model.get_sample_density(population_sample, benign_idx)
+        pathogenic_density = self.joint_densities(population_sample,pathogenic_idx).sum(0)
+        benign_density = self.joint_densities(population_sample, benign_idx).sum(0)
         # Initialize values for MLLS
         prior_estimate = 0.5
         converged = False
         tolerance = kwargs.get("tolerance", 1e-6)
+        em_steps = 0
+        max_em_steps = kwargs.get("max_em_steps",10000)
         while not converged:
+            em_steps += 1
             posteriors = 1 / (
                 1
                 + (1 - prior_estimate)
                 / prior_estimate
-                * benign_density
+                * benign_density # type: ignore
                 / pathogenic_density
             )
             new_prior = np.nanmean(posteriors)
-            if np.abs(new_prior - prior_estimate) < tolerance or np.isnan(new_prior):
-                converged = True
             prior_estimate = new_prior
-        if prior_estimate < 0 or prior_estimate > 1:
-            raise ValueError(f"Invalid prior estimate obtained, {prior_estimate}")
+            if prior_estimate < 0 or prior_estimate > 1:
+                raise ValueError(f"Invalid prior estimate obtained, {prior_estimate}")
+            if em_steps >= max_em_steps:
+                print(f"EM prior estimate algorithm failed to converge after {max_em_steps:,d} iterations. ")
+                break
         return prior_estimate
 
     def get_log_lrPlus(self, x, pathogenic_idx=0, controls_idx=1):
-        fP = self.model.get_sample_density(x, pathogenic_idx)
-        fB = self.model.get_sample_density(x, controls_idx)
+        fP = self.joint_densities(x,pathogenic_idx)
+        fB = self.joint_densities(x,controls_idx)
         return np.log(fP) - np.log(fB)
 
-    def get_score_thresholds(self, prior, point_values, inverted):
+    def get_score_thresholds(self, prior, point_values,**kwargs):
+        """
+        Calculate the point to score range mappings for this model's estimated pathogenic and benign
+        class conditional score distributions and the given prior
+        """
+        if (prior <= 0) or (prior >= 1):
+            raise ValueError(f'Prior must be in the range (0,1), received {prior:.4f}')
+        point_values = np.array(point_values)
+        if (point_values <= 0).any():
+            raise ValueError(f"point_values must be a list of positive integers; received {point_values}")
         uscores = np.linspace(
             self.scoreset.scores.min(), self.scoreset.scores.max(), 1000
         )
         log_LR = self.get_log_lrPlus(uscores)
         (
-            score_thresholds_pathogenic,
-            score_thresholds_benign,
-        ) = calculate_score_thresholds(
-            log_LR, prior, uscores, point_values, inverted=inverted
+            score_ranges_pathogenic,
+            score_ranges_benign,
+        ) = calculate_score_ranges(
+            log_LR, log_LR, prior, uscores, point_values
         )
-        return score_thresholds_pathogenic, score_thresholds_benign
+        return score_ranges_pathogenic, score_ranges_benign
 
     def to_dict(self, **kwargs):
-        model_params = {k: v.tolist() for k, v in self.model.get_params().items()}
+        # model_params = {k: v.tolist() for k, v in self.model.get_params().items()}
+        model_params = serialize_dict(self.fit_result)
         extra = {}
         return {
             **model_params,
@@ -521,7 +528,6 @@ class Fit:
                 for k, v in self._eval_metrics.items()
             },
         }
-
 
 def prior_from_weights(
     weights: np.ndarray,
@@ -570,7 +576,7 @@ def prior_from_weights(
     return prior
 
 
-def thresholds_from_prior(prior, point_values) -> Tuple[np.ndarray, np.ndarray]:
+def thresholds_from_prior(prior, point_values,**kwargs) -> Tuple[np.ndarray, np.ndarray]:
     """
     Get the evidence thresholds (LR+ values) for each point value given a prior
 
@@ -582,7 +588,7 @@ def thresholds_from_prior(prior, point_values) -> Tuple[np.ndarray, np.ndarray]:
 
     """
     exp_vals = 1 / np.array(point_values).astype(float)
-    C = get_tavtigian_constant(prior)
+    C = get_tavtigian_constant(prior,**kwargs)
     pathogenic_evidence_thresholds = np.ones(len(point_values)) * np.nan
     benign_evidence_thresholds = np.ones(len(point_values)) * np.nan
 
@@ -590,40 +596,50 @@ def thresholds_from_prior(prior, point_values) -> Tuple[np.ndarray, np.ndarray]:
         pathogenic_evidence_thresholds[strength_idx] = C**exp_val
         benign_evidence_thresholds[strength_idx] = C**-exp_val
     return pathogenic_evidence_thresholds[::-1], benign_evidence_thresholds[::-1]
+    
+def assign_p(lr, tau,points):
+    for i, t in enumerate(tau):
+        if lr >= t and (i == len(tau)-1 or lr < tau[i+1]):
+            return points[i]
+    return 0
 
+def assign_b(lr, tau, points):
+    for i, t in enumerate(tau):
+        if lr <= t and (i == len(tau)-1 or lr > tau[i+1]):
+            return points[i]
+    return 0
 
-def calculate_score_thresholds(log_LR, prior, rng, point_values, inverted=False):
-    clipped_prior = np.clip(
-        prior, 0.005, 0.55
-    )  # these seem to be the limits of the tavtigian constant
-    lr_thresholds_pathogenic, lr_thresholds_benign = thresholds_from_prior(
-        clipped_prior, point_values
-    )
-    log_lr_thresholds_pathogenic = np.log(lr_thresholds_pathogenic)
-    log_lr_thresholds_benign = np.log(lr_thresholds_benign)
-    pathogenic_score_thresholds = np.ones(len(log_lr_thresholds_pathogenic)) * -np.inf
-    benign_score_thresholds = np.ones(len(log_lr_thresholds_benign)) * np.inf
-    for strength_idx, log_lr_threshold in enumerate(log_lr_thresholds_pathogenic):
-        if log_lr_threshold is np.nan:
-            continue
-        exceed = np.where(log_LR > log_lr_threshold)[0]
-        if len(exceed):
-            if inverted:
-                pathogenic_score_thresholds[strength_idx] = rng[min(exceed)]
-            else:
-                pathogenic_score_thresholds[strength_idx] = rng[max(exceed)]
-    for strength_idx, log_lr_threshold in enumerate(log_lr_thresholds_benign):
-        if log_lr_threshold is np.nan:
-            continue
-        exceed = np.where(log_LR < log_lr_threshold)[0]
-        if len(exceed):
-            if inverted:
-                benign_score_thresholds[strength_idx] = rng[max(exceed)]
-            else:
-                benign_score_thresholds[strength_idx] = rng[min(exceed)]
-    return pathogenic_score_thresholds, benign_score_thresholds
+def get_point_ranges(scores, lrPlus, tau, point_values, pathogenicOrBenign)->Dict[int, List[Tuple[float,float]]]:
+    point_values = np.array(point_values,int)
+    assign = assign_p
+    if pathogenicOrBenign == "benign":
+        point_values = int(-1) * point_values
+        assign = assign_b
+    point_ranges = {int(p) : [] for p in point_values}
+    range_open = np.nan
+    range_point = np.nan
+    for si, li in list(zip(scores, lrPlus)):
+        point_i = assign(li, tau, point_values)
+        if point_i != range_point:
+            if range_point not in {np.nan,0}:
+                point_ranges[int(range_point)].append( sorted(list(map(float,(range_open, si) ))))
+            range_open = si
+            range_point = point_i
+    if range_point not in {np.nan,0}:
+        point_ranges[int(range_point)].append( sorted(list(map(float,(range_open, scores[-1]) ))))
+    return point_ranges
 
-
+def calculate_score_ranges(log_lrPlusLow, log_lrPlusHigh,prior, scores,point_values,**kwargs) -> Tuple[Dict[int,List[Tuple[float,float]]],Dict[int,List[Tuple[float,float]]]]:
+    """
+    {point_value: int -> (range_start:float, range_end:float)}
+    """
+    lrThresholdP,lrThresholdB = thresholds_from_prior(prior, point_values,**kwargs)
+    tauP = np.log(lrThresholdP)
+    tauB = np.log(lrThresholdB)
+    pathogenic_ranges = get_point_ranges(scores, log_lrPlusLow, tauP, point_values, "pathogenic")
+    benign_ranges = get_point_ranges(scores, log_lrPlusHigh, tauB, point_values, "benign")
+    return pathogenic_ranges, benign_ranges
+    
 def makeOneHot(sample_assignments):
     assert np.all(sample_assignments.any(axis=0))
     sample_assignments = np.array(sample_assignments)
@@ -639,8 +655,7 @@ def makeOneHot(sample_assignments):
     assert np.all(onehot.sum(axis=1) <= 1)
     return onehot
 
-
-def assign_points(scores, thresholds_pathogenic, thresholds_benign, point_values):
+def assign_points(scores, point_score_ranges: Dict[int, List[Tuple[float,float]]]):
     """
     Assign points to each score based on the thresholds
 
@@ -649,39 +664,14 @@ def assign_points(scores, thresholds_pathogenic, thresholds_benign, point_values
     scores -- np.ndarray (n,)
         The scores to assign points to
 
-    thresholds_pathogenic -- np.ndarray (k,)
-        The thresholds for pathogenic evidence
-    thresholds_benign -- np.ndarray (k,)
-        The thresholds for benign evidence
-    point_values -- np.ndarray (k,)
-        The point values for each threshold
+    point_score_ranges -- Dict[int, List[Tuple[float,float]]]
+        The score ranges for evidence points
     """
+    
     points = np.zeros_like(scores, dtype=int)
-    thresholds_benign = np.array(thresholds_benign)
-    thresholds_pathogenic = np.array(thresholds_pathogenic)
-    point_values = np.array(point_values)
-    canonical_scoreset = thresholds_pathogenic[0] < thresholds_benign[0]
-    for i, score in enumerate(scores):
-        if np.isnan(score):
-            continue
-        if canonical_scoreset:
-            if score <= thresholds_pathogenic[0]:
-                # is pathogenic
-                exceeds = np.where(score <= thresholds_pathogenic)[0]
-            elif score >= thresholds_benign[0]:
-                # is benign
-                exceeds = np.where(score >= thresholds_benign)[0]
-            else:
-                continue
-        else:
-            if score >= thresholds_pathogenic[0]:
-                # is pathogenic
-                exceeds = np.where(score >= thresholds_pathogenic)[0]
-            elif score <= thresholds_benign[0]:
-                # is benign
-                exceeds = np.where(score <= thresholds_benign)[0]
-            else:
-                continue
-        if len(exceeds):
-            points[i] = point_values[exceeds[-1]]
+    for points_key, score_ranges in point_score_ranges.items():
+        for score_range in score_ranges:
+            mask = (scores >= score_range[0]) & \
+                    (scores <= score_range[1])
+            points[mask] = points_key
     return points

@@ -315,7 +315,7 @@ class Scoreset:
                 self._sample_assignments[idx, 0] = True
             if any([variant.is_benign for variant in variants]):
                 self._sample_assignments[idx, 1] = True
-            if any([variant.is_missense and variant.is_snv for variant in variants]):
+            if self.use_fifth_sample and any([variant.is_missense and variant.is_snv for variant in variants]):
                 self._sample_assignments[idx, 4] = True
         self.sample_counts = self._sample_assignments.sum(axis=0)
 
@@ -391,7 +391,7 @@ class Variant:
             self.simplified_consequence == "synonymous_variant"
         )
         self.is_missense = self.simplified_consequence == 'missense_variant'
-        self.is_snv = len(self.ref_allele) == 1 and len(self.alt_allele) == 1
+        self.is_snv = len(str(self.ref_allele)) == 1 and len(str(self.alt_allele)) == 1
 
     def parse_clinvar_sig(self):
         self.is_conflicting = (

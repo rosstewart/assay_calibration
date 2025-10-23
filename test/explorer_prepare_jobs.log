@@ -1,0 +1,51 @@
+[Parallel(n_jobs=30)]: Using backend LokyBackend with 30 concurrent workers.
+================================================================================
+HPC Job Array Setup - Consolidated Bootstrap Fits
+================================================================================
+Generating consolidated jobs from 72 datasets...
+Target array size: 1000
+Parallel workers: 30
+
+Loading datasets and generating jobs...
+[Parallel(n_jobs=30)]: Done   1 tasks      | elapsed:   16.0s
+[Parallel(n_jobs=30)]: Done  12 tasks      | elapsed:   43.7s
+[Parallel(n_jobs=30)]: Done  21 out of  72 | elapsed:  1.0min remaining:  2.5min
+[Parallel(n_jobs=30)]: Done  29 out of  72 | elapsed:  1.2min remaining:  1.8min
+[Parallel(n_jobs=30)]: Done  37 out of  72 | elapsed:  1.6min remaining:  1.5min
+[Parallel(n_jobs=30)]: Done  45 out of  72 | elapsed:  1.8min remaining:  1.1min
+[Parallel(n_jobs=30)]: Done  53 out of  72 | elapsed:  2.1min remaining:   46.1s
+[Parallel(n_jobs=30)]: Done  61 out of  72 | elapsed:  2.5min remaining:   27.1s
+[Parallel(n_jobs=30)]: Done  69 out of  72 | elapsed:  2.6min remaining:    6.9s
+[Parallel(n_jobs=30)]: Done  72 out of  72 | elapsed:  4.7min finished
+
+Flattening and organizing jobs...
+Total consolidated jobs: 72,000
+  (Each job runs 100 fits for 2c + 100 fits for 3c = 200 fits)
+
+Optimal arrangement:
+  Jobs per array task: 72
+  Number of array tasks: 1000
+  Fits per array task: 14,400
+
+Saving job files...
+Job index saved to: /data/ross/assay_calibration/explorer_jobs/job_index.json
+
+SLURM script saved to: /data/ross/assay_calibration/explorer_jobs/submit_array.sh
+Estimated time per array task: 04:20:00
+Worker script saved to: /data/ross/assay_calibration/explorer_jobs/run_array_task.py
+Status checker saved to: /data/ross/assay_calibration/explorer_jobs/check_status.py
+
+================================================================================
+Setup complete!
+================================================================================
+
+Configuration:
+  Total consolidated jobs: 72,000
+  Array tasks: 1,000
+  Jobs per array task: 72
+
+Next steps:
+1. Review: /data/ross/assay_calibration/explorer_jobs/submit_array.sh
+2. Submit: cd /data/ross/assay_calibration/explorer_jobs && sbatch submit_array.sh
+3. Monitor: python /data/ross/assay_calibration/explorer_jobs/check_status.py
+4. Logs: /data/ross/assay_calibration/explorer_jobs/logs/

@@ -163,6 +163,11 @@ class Scoreset:
         dataframe : pd.DataFrame
             The dataframe to create the scoreset from
 
+        Optional parameters
+        -------------------
+        five_sample : bool, default=False
+            Whether to include all missense SNV as the fifth sample.
+
         Returns
         -------
         Scoreset
@@ -277,21 +282,18 @@ class Scoreset:
 
     def _init_matrices(self, **kwargs):
         self.has_synomyous = any([variant.is_synonymous for variant in self.variants])
-        if self.has_synomyous:
-            self.NSamples = 4
-            self.sample_names = [
-                "Pathogenic/Likely Pathogenic",
-                "Benign/Likely Benign",
-                "gnomAD",
-                "Synonymous",
-            ]
-        else:
-            self.NSamples = 3
-            self.sample_names = [
-                "Pathogenic/Likely Pathogenic",
-                "Benign/Likely Benign",
-                "gnomAD",
-            ]
+        self.use_fifth_sample = kwargs.get('five_sample',False)
+        
+        self.NSamples = 3 + int(self.has_synomyous) + int(self.use_fifth_sample)
+        
+        self.sample_names = [
+            "Pathogenic/Likely Pathogenic",
+            "Benign/Likely Benign",
+            "gnomAD",
+            "Synonymous",
+            "All Missense SNV",
+        ][:self.NSamples]
+        
         variants_by_id = self.get_variants_by_id()
         self.n_variants = len(variants_by_id)
         self._sample_assignments = np.zeros(
@@ -313,6 +315,8 @@ class Scoreset:
                 self._sample_assignments[idx, 0] = True
             if any([variant.is_benign for variant in variants]):
                 self._sample_assignments[idx, 1] = True
+            if self.use_fifth_sample and any([variant.is_missense and variant.is_snv for variant in variants]):
+                self._sample_assignments[idx, 4] = True
         self.sample_counts = self._sample_assignments.sum(axis=0)
 
     def get_variants_by_id(self):
@@ -374,6 +378,8 @@ class Variant:
         self.clinvar_sig = None
         self.gnomad_MAF = None
         self.auth_reported_score = None
+        self.is_missense = None
+        self.is_snv = None
         for k, v in variant_info.items():
             setattr(self, str(k), v)
         self.parse_gnomAD_MAF()
@@ -384,6 +390,8 @@ class Variant:
         self.is_synonymous = (self.simplified_consequence == "Synonymous") or (
             self.simplified_consequence == "synonymous_variant"
         )
+        self.is_missense = self.simplified_consequence == 'missense_variant'
+        self.is_snv = len(str(self.ref_allele)) == 1 and len(str(self.alt_allele)) == 1
 
     def parse_clinvar_sig(self):
         self.is_conflicting = (

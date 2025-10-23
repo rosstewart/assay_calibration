@@ -1,15 +1,16 @@
 from .update_steps import em_iteration, get_sample_weights
 from .density_utils import get_likelihood
-from .initializations import kmeans_init, methodOfMomentsInit, fix_to_satisfy_density_constraint
+from .initializations import kmeans_init, methodOfMomentsInit
 from . import constraints
 
 import numpy as np
 import logging
 from tqdm.auto import tqdm
+import warnings
 
 
 def single_fit(
-    observations, sample_indicators, N_components, constrained, init_method, **kwargs
+    observations, sample_indicators, N_components, constrained, init_method, init_constraint_adjustment, **kwargs
 ):
     """
     Fit a two-component mixture model to the observations using the EM algorithm.
@@ -45,7 +46,10 @@ def single_fit(
     early_stopping : bool, default=True
         Whether to stop the EM algorithm early if the likelihood converges.
 
-    submerge_steps : int, optional
+    check_submerged_duration : bool, default=False
+        Whether to check if the unconstrained model goes underwater. Useful for learning model behavior.
+
+    DEPRECATED : submerge_steps : int, optional
         Optional max number of initial steps to explore without constraint. constrained must be set to true.
 
     Returns
@@ -57,12 +61,19 @@ def single_fit(
         - 'likelihoods': Array of likelihood values at each iteration.
         - 'history': List of dictionaries containing component parameters and weights at each iteration.
         - 'kmeans': KMeans object used for initialization (if applicable), or None.
+        - 'xlims': bounds of scores
+        - 'times_submerged': 'list containing each underwater duration taken by the model'
     """
     MAX_EM_ITERS = kwargs.get("max_em_iters", 10000)
     verbose = kwargs.get("verbose", True)
+    check_submerged_duration = kwargs.get("check_submerged_duration", False)
+    MIN_SCALE = 1e-100
+    
     submerge_steps = kwargs.get("submerge_steps", None)
-    if submerge_steps is not None and not constrained:
-        raise ValueError("constrained must be True when submerge_steps is not None.")
+    if submerge_steps is not None:# and not constrained:
+        # raise ValueError("constrained must be True when submerge_steps is not None.")
+        raise NotImplementedError('submerge_steps is deprecated')
+    
     xlims = (observations.min(), observations.max())
     N_samples = sample_indicators.shape[1]
     if (
@@ -89,7 +100,7 @@ def single_fit(
         
         if init_method == "method_of_moments":
             kmeans = "method_of_moments"
-            initial_params = methodOfMomentsInit(observations, N_components)
+            initial_params = methodOfMomentsInit(observations, N_components, constrained, init_constraint_adjustment=init_constraint_adjustment, **kwargs)
 
         # init_method is kmeans or was a failed method of moments (fall back to kmeans)
         if initial_params is None:
@@ -99,7 +110,7 @@ def single_fit(
             # Run Initialization
             try:
                 initial_params, kmeans = kmeans_init(
-                    observations, n_clusters=N_components
+                    observations, n_clusters=N_components, constrained=constrained, init_constraint_adjustment=init_constraint_adjustment, **kwargs
                 )
             except ValueError:
                 logging.warning("Failed to initialize")
@@ -107,12 +118,9 @@ def single_fit(
                     component_params=[[] for _ in range(N_components)],
                     weights=W,
                     likelihoods=[-1 * np.inf],
+                    xlims=xlims,
+                    times_submerged=[],
                 )
-        # elif verbose:
-        #     print("method of moments succeeded")
-
-        # if verbose:
-        #     print(f'init_method: {init_method}, params: {initial_params}')
             
         W = get_sample_weights(observations, sample_indicators, initial_params, W)
     history = [dict(component_params=initial_params, weights=W)]
@@ -141,6 +149,8 @@ def single_fit(
             weights=W,
             likelihoods=[*likelihoods, -1 * np.inf],
             kmeans=kmeans,
+            xlims=xlims,
+            times_submerged=[],
         )
     likelihoods = np.array(
         [
@@ -158,12 +168,17 @@ def single_fit(
     if verbose:
         pbar = tqdm(total=MAX_EM_ITERS, leave=False, desc="EM Iteration")
 
-
-    # print('submerge_steps',submerge_steps)
-    if submerge_steps is None:
-        # continue as normal for loop
+    try: # return failed fit upon ValueError or ZeroDivisionError
+    
+        underwater_time = 0
+        times_submerged = [] # only append when coming back up
+        if not constrained and check_submerged_duration:
+            is_underwater = constraints.multicomponent_density_constraint_violated(updated_component_params, xlims)
+            if is_underwater:
+                underwater_time += 1 # already did step 0 before for loop
+    
         for i in range(MAX_EM_ITERS):
-            history.append( # i+1 will be index of history dict (because of initial params)
+            history.append(
                 dict(component_params=updated_component_params, weights=updated_weights)
             )
             if np.isnan(likelihoods).any():
@@ -189,6 +204,27 @@ def single_fit(
                 xlims,
                 iterNum=i + 1,
             )
+            # enforce minimum scale to accommodate numerical errors
+            for i, (a, loc, scale) in enumerate(updated_component_params):
+                if scale < MIN_SCALE:
+                    updated_component_params[i] = (a, loc, max(scale, MIN_SCALE))
+    
+            # check underwater duration
+            if not constrained and check_submerged_duration:
+                violated = constraints.multicomponent_density_constraint_violated(updated_component_params, xlims)
+    
+                if is_underwater and violated: # stayed underwater
+                    underwater_time += 1
+                elif is_underwater and not violated: # resurfaced by chance
+                    is_underwater = False
+                    times_submerged.append(underwater_time)
+                    underwater_time = 0
+                elif not is_underwater and violated: # went back underwater
+                    is_underwater = True
+                    underwater_time += 1
+                elif not is_underwater and not violated: # stayed above water
+                    pass
+    
             likelihoods = np.array(
                 [
                     *likelihoods,
@@ -201,211 +237,58 @@ def single_fit(
                     / len(sample_indicators),
                 ]
             )
-            # if i == 1:  # When early stopping triggers
-            #     print(f"Likelihood at iter 0: {likelihoods[-2]:.12f}")
-            #     print(f"Likelihood at iter 1: {likelihoods[-1]:.12f}")
-            #     print(f"Difference: {likelihoods[-1] - likelihoods[-2]:.12e}")
-            #     print(f"History: {history}")
             if i > 0 and (likelihoods[-1] < likelihoods[-2]):
                 decrease = likelihoods[-2] - likelihoods[-1]
                 
                 relative_decrease = decrease / abs(likelihoods[-2])
                 
-                is_numerical_error = relative_decrease < 1e-6
+                is_numerical_error = decrease < 1e-14
                 
-                if is_numerical_error:
-                    print(f"Iteration {i}: Likelihood decreased by {decrease:.2e} (relative: {relative_decrease:.2e}) - likely numerical rounding error")
-                else:
-                    print(f"Iteration {i}: Likelihood DECREASED by {decrease:.2e} (relative: {relative_decrease:.2e}) - algorithmic issue")
+                if not is_numerical_error:
+                    raise ValueError(f"Iteration {i}: Likelihood ({likelihoods[-2]}->{likelihoods[-1]}) decreased by {decrease:.2e} (relative: {relative_decrease:.2e}) - (numerical rounding?)\nParams: {history[-1]['component_params']}-->{updated_component_params}\nWeights: {history[-1]['weights']}-->{updated_weights}")
                 
-                # Continue if it's just numerical error
-                if is_numerical_error:
-                    # Small enough to ignore, continue iteration
-                    pass
-                else:
-                    # Return failed fit
-                    return dict(
-                        component_params=updated_component_params,
-                        weights=updated_weights,
-                        likelihoods=[*likelihoods, -1 * np.inf],
-                        kmeans=kmeans,
-                    )
-                # raise ValueError(
-                #     f"Likelihood decreased at iteration {i} for unconstrained fit"
-                # )
             if kwargs.get("verbose", True):
                 pbar.set_postfix({"likelihood": f"{likelihoods[-1]:.6f}"})  # type: ignore
                 pbar.update(1)  # type: ignore
             if (
                 kwargs.get("early_stopping", True)
                 and i >= 1
-                and (np.abs(likelihoods[-1] - likelihoods[-2]) < 1e-10).all()
+                and (np.abs(likelihoods[-1] - likelihoods[-2]) / abs(likelihoods[-2]) < 1e-8).all() # relative difference < 1e-8
             ):
-                history.append(
-                    dict(component_params=updated_component_params, weights=updated_weights)
-                )
                 break
-    else:
-        # submerge mode must rewind; for loop is not suitable
-        submerge_mode = False
-        i = 0
-
+    
+        
+        # check final if resurfaced
+        if not constrained and check_submerged_duration:
+            violated = constraints.multicomponent_density_constraint_violated(updated_component_params, xlims)
+    
+            if is_underwater and not violated: # resurfaced by chance on last iteration
+                is_underwater = False
+                times_submerged.append(underwater_time)
+                underwater_time = 0
+        
         history.append(
             dict(component_params=updated_component_params, weights=updated_weights)
         )
-
-        last_surface_idx = -1
-        while i < MAX_EM_ITERS:
-            if np.isnan(likelihoods).any():
-                raise ValueError()
-            if np.isnan(np.concatenate(updated_component_params)).any():
-                raise ValueError()
-            if np.isnan(updated_weights).any():
-                raise ValueError()
-            if np.isnan(np.concatenate(updated_component_params)).any():
-                raise ValueError(
-                    f"NaN in updated component params at iteration {i}\n{updated_component_params}"
-                )
-            if np.isnan(updated_weights).any():
-                raise ValueError(
-                    f"NaN in updated weights at iteration {i}\n{updated_weights}"
-                )
-
-            if not submerge_mode:
-                print(f"Before em_iteration {i}:")
-                print(f"  Params: {updated_component_params}")
-            updated_component_params, updated_weights = em_iteration(
-                observations,
-                sample_indicators,
-                updated_component_params,
-                updated_weights,
-                constrained=not submerge_mode,
-                xlims=xlims,
-                iterNum=i + 1
-            )
-            
-            if not submerge_mode:
-                # save only last run with constraint for later rewind
-                history.append(  # i+1 will be index of history dict (because of initial params)
-                    dict(component_params=updated_component_params, weights=updated_weights)
-                )
-                last_surface_idx = i
-            
-            if not submerge_mode:
-                print(f"After em_iteration {i}:")  
-                print(f"  Params: {updated_component_params}\n")
+        if kwargs.get("verbose", True):
+            pbar.close()  # type: ignore
+        if constrained and constraints.multicomponent_density_constraint_violated(
+            updated_component_params, xlims
+        ):
+            raise ValueError("Final parameters violate density constraint")
 
 
-            # if not submerge mode or came back up for air
-            if not submerge_mode or (submerge_mode and not constraints.multicomponent_density_constraint_violated(updated_component_params, xlims)):
-                # in exploitation mode; continue as normal
-
-                if submerge_mode:
-                    # came out of water; append latest history
-                    print(f'constraint satisfied: came out of water from i={i} to i={len(history)-2}')
-                    submerge_mode = False
-                    i = last_surface_idx+1
-                    history.append(  # i+1 will be index of history dict (because of initial params)
-                        dict(component_params=updated_component_params, weights=updated_weights)
-                    )
-
-                print('iteration',i)
-                    
-            
-                likelihoods = np.array(
-                    [
-                        *likelihoods,
-                        get_likelihood(
-                            observations,
-                            sample_indicators,
-                            updated_component_params,
-                            updated_weights,
-                        )
-                        / len(sample_indicators),
-                    ]
-                )
-                # if i == 1:  # When early stopping triggers
-                #     print(f"Likelihood at iter 0: {likelihoods[-2]:.12f}")
-                #     print(f"Likelihood at iter 1: {likelihoods[-1]:.12f}")
-                #     print(f"Difference: {likelihoods[-1] - likelihoods[-2]:.12e}")
-                #     print(f"History: {history}")
-                if i > 0 and (likelihoods[-1] < likelihoods[-2]):
-                    decrease = likelihoods[-2] - likelihoods[-1]
-                    
-                    # Determine if this is numerical rounding error
-                    # Machine epsilon for float64 is ~2.2e-16
-                    # Relative decrease compared to likelihood magnitude
-                    relative_decrease = decrease / abs(likelihoods[-2])
-                    
-                    # If relative decrease is less than sqrt(machine epsilon) * 100, 
-                    # it's likely numerical rounding
-                    is_numerical_error = relative_decrease < 1e-6
-                    
-                    if is_numerical_error:
-                        print(f"Iteration {i}: Likelihood decreased by {decrease:.2e} (relative: {relative_decrease:.2e}) - likely numerical rounding error")
-                    else:
-                        print(f"Iteration {i}: Likelihood DECREASED by {decrease:.2e} (relative: {relative_decrease:.2e}) - algorithmic issue")
-                    
-                    # Continue if it's just numerical error
-                    if is_numerical_error:
-                        # Small enough to ignore, continue iteration
-                        pass
-                    else:
-                        # Return failed fit
-                        return dict(
-                            component_params=updated_component_params,  # Fixed: was [[]*N_components]
-                            weights=updated_weights,
-                            likelihoods=[*likelihoods, -1 * np.inf],
-                            kmeans=kmeans,
-                        )
-                    # raise ValueError(
-                    #     f"Likelihood decreased at iteration {i} for unconstrained fit"
-                    # )
-                if kwargs.get("verbose", True):
-                    pbar.set_postfix({"likelihood": f"{likelihoods[-1]:.6f}"})  # type: ignore
-                    pbar.update(1)  # type: ignore
-                if (
-                    kwargs.get("early_stopping", True)
-                    and i >= 1
-                    and (np.abs(likelihoods[-1] - likelihoods[-2]) < 1e-10).all()
-                ):
-                    print('early stopping')
-                    break
-
-                submerge_mode = True # go back underwater
-            else:
-                # in exploration mode; constraint was violated
-                if i - last_surface_idx >= submerge_steps:
-                    # rewind back to last time constraint was satisfied. perform another constrained iteration, then go back underwater
-                    print(f'after {submerge_steps} steps underwater: constraint not satisfied, rewinding from i={i} to i={last_surface_idx} (len(history)={len(history)})')
-                    submerge_mode = False
-                    i = last_surface_idx # i += 1 at end
-                    # updated_component_params, updated_weights = history[-1]['component_params'], history[-1]['weights']
-                    # fixed_underwater_params = fix_to_satisfy_density_constraint(updated_component_params, xlims)
-                    # if len(fixed_underwater_params) == 0 or any(len(p) == 0 for p in fixed_underwater_params):
-                    updated_component_params, updated_weights = history[-1]['component_params'], history[-1]['weights']
-                        # print('could not fix underwater params to density constraint')
-                    # else:
-                    #     updated_component_params = fixed_underwater_params
-                    #     print('fixed underwater params to density constraint')
-
-                    if submerge_steps == 1:
-                        submerge_steps = 0
-                    else:
-                        submerge_steps = submerge_steps // 2 # half on each attempt
-                    
-            
-            i += 1
     
-    # history.append(
-    #     dict(component_params=updated_component_params, weights=updated_weights)
-    # )
-    if kwargs.get("verbose", True):
-        pbar.close()  # type: ignore
-    if constrained and constraints.multicomponent_density_constraint_violated(
-        updated_component_params, xlims
-    ):
-        raise ValueError("Final parameters violate density constraint")
+    except (ValueError, ZeroDivisionError) as e:
+        warnings.warn(f'Failed fit: {e}')
+        return dict(
+            component_params=updated_component_params,
+            weights=updated_weights,
+            likelihoods=[*likelihoods, -1 * np.inf],
+            kmeans=kmeans,
+            xlims=xlims,
+            times_submerged=[],
+        )
 
     return dict(
         component_params=updated_component_params,
@@ -413,5 +296,6 @@ def single_fit(
         likelihoods=likelihoods,
         history=history,
         kmeans=kmeans,
-        xlims=xlims
+        xlims=xlims,
+        times_submerged=times_submerged,
     )

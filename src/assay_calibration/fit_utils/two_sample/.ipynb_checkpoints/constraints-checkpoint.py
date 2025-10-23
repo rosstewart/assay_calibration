@@ -24,7 +24,7 @@ def density_constraint_violated(params_1, params_2, xlims: Tuple[float, float]) 
 
 
 def multicomponent_density_constraint_violated(
-    param_sets, xlims: Tuple[float, float]
+    param_sets, xlims: Tuple[float, float], tolerance=0
 ) -> bool:
     """
     For each pair of distributions i and i+1 in param_sets,
@@ -36,6 +36,8 @@ def multicomponent_density_constraint_violated(
         of a skew normal distribution
 
     xlims: tuple : (xmin, xmax) : range of x values to check the density ratio
+    tolerance: float (default 0) : tolerance to allow for numerical precision errors
+                                       when converting parameters from alternate to canonical
 
     Returns:
     bool : True if any density ratio is not monotonic (constraint violated), False otherwise
@@ -44,10 +46,17 @@ def multicomponent_density_constraint_violated(
     log_pdfs = [sps.skewnorm.logpdf(x_values, *params) for params in param_sets]
 
     for i in range(len(log_pdfs) - 1):
-        if not np.all(np.diff(log_pdfs[i] - log_pdfs[i + 1]) < 0):
+        diffs = np.diff(log_pdfs[i] - log_pdfs[i + 1])
+        if np.any(diffs > tolerance): 
             return True
-
+    
     return False
+    
+    # for i in range(len(log_pdfs) - 1):
+    #     if not np.all(np.diff(log_pdfs[i] - log_pdfs[i + 1]) < 0):
+    #         return True
+
+    # return False
 
 
 def positive_likelihood_ratio_montonicity_constraint_violated(
@@ -62,5 +71,5 @@ def positive_likelihood_ratio_montonicity_constraint_violated(
         x_values, component_param_sets, weights_pathogenic
     )
     f_benign = density_utils.mixture_pdf(x_values, component_param_sets, weights_benign)
-    log_lr_plus = np.log(f_path) - np.log(f_benign)
+    log_lr_plus = f_path - f_benign # already log : np.log(f_path) - np.log(f_benign)
     return (np.diff(log_lr_plus) > 0).any()

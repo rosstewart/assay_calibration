@@ -126,14 +126,14 @@ def generate_job_manifest(target_array_size=1000, n_jobs=30):
         n_jobs: Number of parallel workers for job generation
     """
     
-    output_dir = "/data/ross/assay_calibration/explorer_jobs"
+    output_dir = "/data/ross/assay_calibration/explorer_jobs_unconstrained_rerun"
     jobs_dir = f"{output_dir}/jobs"
     os.makedirs(jobs_dir, exist_ok=True)
     
     N_BOOTSTRAPS = 1000
     NUM_FITS = 100  # fits per bootstrap per component
     
-    dataset_files = glob.glob("/data/ross/assay_calibration/scoresets_remove_ds_circular_clinvar/*.json")
+    dataset_files = glob.glob("/data/ross/assay_calibration/scoresets_unconstrained_rerun/*.json")
     
     print(f"Generating consolidated jobs from {len(dataset_files)} datasets...")
     print(f"Target array size: {target_array_size}")
@@ -441,7 +441,7 @@ if __name__ == "__main__":
                        help='Number of parallel workers for job generation (default: 30)')
     args = parser.parse_args()
     
-    output_dir = "/data/ross/assay_calibration/explorer_jobs"
+    output_dir = "/data/ross/assay_calibration/explorer_jobs_unconstrained_rerun"
     
     print("="*80)
     print("HPC Job Array Setup - Consolidated Bootstrap Fits")
@@ -452,8 +452,8 @@ if __name__ == "__main__":
         target_array_size=args.target_array_size,
         n_jobs=args.n_jobs
     )
-    create_worker_script(output_dir)
-    create_status_checker(output_dir)
+    # create_worker_script(output_dir)
+    # create_status_checker(output_dir)
     
     print("\n" + "="*80)
     print("Setup complete!")
