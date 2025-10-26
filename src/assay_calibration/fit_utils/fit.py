@@ -207,19 +207,32 @@ class Fit:
                 print(
                     f"Running {NUM_FITS} fits for each of {len(component_range)} components sequentially"
                 )
-            models = [
-                tryToFit(
-                    train_observations,
-                    train_sample_assignments,
-                    num_components,
-                    constrained,
-                    init_methods[i],
-                    init_constraint_adjustments[i],
-                    **kwargs,
-                )
-                for i in range(NUM_FITS)
-                for num_components in component_range
-            ]
+            # models = [
+            #     tryToFit(
+            #         train_observations,
+            #         train_sample_assignments,
+            #         num_components,
+            #         constrained,
+            #         init_methods[i],
+            #         init_constraint_adjustments[i],
+            #         **kwargs,
+            #     )
+            #     for i in range(NUM_FITS)
+            #     for num_components in component_range
+            # ]
+            models = []
+            for num_components in component_range:
+                for i in range(NUM_FITS):
+                    kwargs["lambdaIndex"] = i%(2**num_components)
+                    models.append(tryToFit(
+                        train_observations,
+                        train_sample_assignments,
+                        num_components,
+                        constrained,
+                        init_methods[i],
+                        init_constraint_adjustments[i],
+                        **kwargs,
+                    ))
         else:
             verbosity = 0
             if kwargs.get("verbose", False):
