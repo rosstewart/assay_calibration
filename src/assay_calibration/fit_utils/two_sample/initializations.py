@@ -1,7 +1,8 @@
-from .constraints import density_constraint_violated
+from .constraints import density_constraint_violated, multicomponent_density_constraint_violated
 import numpy as np
 from sklearn.cluster import KMeans
 import scipy.stats as sps
+import itertools
 
 
 def kmeans_init(X, **kwargs):
@@ -119,7 +120,11 @@ def methodOfMomentsInit(X, n_components, constrained, max_attempts=1000, **kwarg
     Returns:
     [(skew_1, loc_1, sigma_1), ..., (skew_k, loc_k, sigma_k)] or None upon failure
     '''
-    
+    LambdasTable = list(itertools.product([-1,1], repeat=n_components))
+    if "lambdaIndex" in kwargs:
+        lambdas = LambdasTable[kwargs["lambdaIndex"]]
+
+        
     # probabilistic intialization
     for attempt in range(max_attempts):
         if np.random.rand() < 0.7:  # 70% of the time use percentile-based
@@ -134,6 +139,8 @@ def methodOfMomentsInit(X, n_components, constrained, max_attempts=1000, **kwarg
                 np.percentile(X, 95), 
                 n_components - 1
             ))
+
+    
         
         component_parameters = []
         success = True
@@ -152,13 +159,23 @@ def methodOfMomentsInit(X, n_components, constrained, max_attempts=1000, **kwarg
                 break
             
             params = sn_method_of_moments_init(X_component)
+        
             
             if len(params) == 0:
                 success = False
                 break
-                
+            params = list(params)
+            #params[0] = lambdas[i] * abs(params[0])
+            params[0] = lambdas[i]
+            params = tuple(params)
+
             component_parameters.append(params)
-        
+        max_scale = np.max([p[2] for p in component_parameters])
+        for i in range(len(component_parameters)):
+            param = list(component_parameters[i])
+            param[2] = max_scale
+            component_parameters[i] = tuple(param)  
+
         if success and all(len(params) > 0 for params in component_parameters):
 
             # enforce constraint and return
@@ -180,11 +197,163 @@ def methodOfMomentsInit(X, n_components, constrained, max_attempts=1000, **kwarg
 
 
 
+# def fix_to_satisfy_density_constraint(component_parameters, xlims, **kwargs):
+#     n_components = len(component_parameters)
+
+#     param_to_adjust = kwargs.get('init_constraint_adjustment','skew')
+#     assert param_to_adjust == 'skew' or param_to_adjust == 'scale'
+#     # if kwargs.get('verbose', True):
+#     #     print('param_to_adjust',param_to_adjust)
+
+#     if any(len(p) == 0 for p in component_parameters):
+#         return [[] for _ in range(n_components)]
+    
+#     # ensure components are ordered by location first  
+#     component_parameters = sorted(component_parameters, key=lambda x: x[1])
+
+#     # validate scales
+#     for i in range(n_components):
+#         if len(component_parameters[i]) >= 3 and component_parameters[i][2] < 1e-6:
+#             # Set minimum scale
+#             component_parameters[i] = list(component_parameters[i])
+#             component_parameters[i][2] = 1e-6
+
+#     # special case to adjust 1,3 with 2 simultaneously
+#     if n_components == 3:
+#         # Adjust middle component to satisfy both neighbors
+#         for _ in range(300):
+#             v01 = density_constraint_violated(component_parameters[0], component_parameters[1], xlims)
+#             v12 = density_constraint_violated(component_parameters[1], component_parameters[2], xlims)
+            
+#             if not v01 and not v12:
+#                 break
+
+#             if param_to_adjust == 'skew':
+            
+#                 if v01:
+#                     # Fix 0-1
+#                     component_parameters[0] = [
+#                         component_parameters[0][0] - 0.05 * abs(component_parameters[0][0]),
+#                         component_parameters[0][1],
+#                         component_parameters[0][2],
+#                     ]
+#                     component_parameters[1] = [
+#                         component_parameters[1][0] + 0.025 * abs(component_parameters[1][0]),  # Smaller adjustment
+#                         component_parameters[1][1],
+#                         component_parameters[1][2],
+#                     ]
+    
+#                 if v12:
+#                     # Fix 1-2
+#                     component_parameters[1] = [
+#                         component_parameters[1][0] - 0.025 * abs(component_parameters[1][0]),  # Smaller adjustment
+#                         component_parameters[1][1],
+#                         component_parameters[1][2],
+#                     ]
+#                     component_parameters[2] = [
+#                         component_parameters[2][0] + 0.05 * abs(component_parameters[2][0]),
+#                         component_parameters[2][1],
+#                         component_parameters[2][2],
+#                     ]
+
+#             else:
+                
+#                 if v01:
+#                     # Fix 0-1
+#                     component_parameters[0] = [
+#                         component_parameters[0][0],
+#                         component_parameters[0][1],
+#                         component_parameters[0][2]*0.95,
+#                     ]
+#                     component_parameters[1] = [
+#                         component_parameters[1][0],
+#                         component_parameters[1][1],
+#                         component_parameters[1][2]*0.95,
+#                     ]
+    
+#                 if v12:
+#                     # Fix 1-2
+#                     component_parameters[1] = [
+#                         component_parameters[1][0],
+#                         component_parameters[1][1],
+#                         component_parameters[1][2]*0.95,
+#                     ]
+#                     component_parameters[2] = [
+#                         component_parameters[2][0],
+#                         component_parameters[2][1],
+#                         component_parameters[2][2]*0.95,
+#                     ]
+                
+        
+#         # Check final
+#         if density_constraint_violated(component_parameters[0], component_parameters[1], xlims) or \
+#            density_constraint_violated(component_parameters[1], component_parameters[2], xlims):
+#             return [[] for _ in range(n_components)]
+#     else:
+#         rep_failed = False
+#         for compI, compJ in zip(range(0, n_components - 1), range(1, n_components)):
+#             if rep_failed:
+#                 break
+                
+#             # Try to fix this pair
+#             attempts = 0
+#             for attempts in range(300):
+#                 if not density_constraint_violated(
+#                     component_parameters[compI], component_parameters[compJ], xlims
+#                 ):
+#                     break
+
+#                 if param_to_adjust == 'skew':
+#                     component_parameters[compI] = [
+#                         component_parameters[compI][0] - 0.05 * abs(component_parameters[compI][0]),
+#                         component_parameters[compI][1],
+#                         component_parameters[compI][2],
+#                     ]
+#                     component_parameters[compJ] = [
+#                         component_parameters[compJ][0] + 0.05 * abs(component_parameters[compJ][0]),
+#                         component_parameters[compJ][1],
+#                         component_parameters[compJ][2],
+#                     ]
+#                 else:
+#                     component_parameters[compI] = [
+#                         component_parameters[compI][0],
+#                         component_parameters[compI][1],
+#                         component_parameters[compI][2]*0.95,
+#                     ]
+#                     component_parameters[compI] = [
+#                         component_parameters[compI][0],
+#                         component_parameters[compI][1],
+#                         component_parameters[compI][2]*0.95,
+#                     ]
+                    
+            
+#             still_violated = density_constraint_violated(
+#                 component_parameters[compI], component_parameters[compJ], xlims
+#             )
+            
+#             if still_violated:
+#                 rep_failed = True
+#                 break
+        
+#         if rep_failed:
+#             return [[] for _ in range(n_components)]
+    
+#     # Check all adjacent pairs are satisfied
+#     for i in range(n_components - 1):
+#         violated = density_constraint_violated(
+#             component_parameters[i], component_parameters[i + 1], xlims
+#         )
+#         assert not violated, f"Components {i} and {i+1} violate constraint"
+    
+#     return component_parameters
+
+
 def fix_to_satisfy_density_constraint(component_parameters, xlims, **kwargs):
     n_components = len(component_parameters)
 
-    param_to_adjust = kwargs.get('init_constraint_adjustment','skew')
-    assert param_to_adjust == 'skew' or param_to_adjust == 'scale'
+    param_to_adjust = kwargs.get('init_constraint_adjustment','scale')
+    #assert param_to_adjust == 'skew' or param_to_adjust == 'scale'
+    assert param_to_adjust == 'scale'
     # if kwargs.get('verbose', True):
     #     print('param_to_adjust',param_to_adjust)
 
@@ -200,133 +369,19 @@ def fix_to_satisfy_density_constraint(component_parameters, xlims, **kwargs):
             # Set minimum scale
             component_parameters[i] = list(component_parameters[i])
             component_parameters[i][2] = 1e-6
-
-    # special case to adjust 1,3 with 2 simultaneously
-    if n_components == 3:
-        # Adjust middle component to satisfy both neighbors
-        for _ in range(300):
-            v01 = density_constraint_violated(component_parameters[0], component_parameters[1], xlims)
-            v12 = density_constraint_violated(component_parameters[1], component_parameters[2], xlims)
-            
-            if not v01 and not v12:
-                break
-
-            if param_to_adjust == 'skew':
-            
-                if v01:
-                    # Fix 0-1
-                    component_parameters[0] = [
-                        component_parameters[0][0] - 0.05 * abs(component_parameters[0][0]),
-                        component_parameters[0][1],
-                        component_parameters[0][2],
-                    ]
-                    component_parameters[1] = [
-                        component_parameters[1][0] + 0.025 * abs(component_parameters[1][0]),  # Smaller adjustment
-                        component_parameters[1][1],
-                        component_parameters[1][2],
-                    ]
-    
-                if v12:
-                    # Fix 1-2
-                    component_parameters[1] = [
-                        component_parameters[1][0] - 0.025 * abs(component_parameters[1][0]),  # Smaller adjustment
-                        component_parameters[1][1],
-                        component_parameters[1][2],
-                    ]
-                    component_parameters[2] = [
-                        component_parameters[2][0] + 0.05 * abs(component_parameters[2][0]),
-                        component_parameters[2][1],
-                        component_parameters[2][2],
-                    ]
-
-            else:
-                
-                if v01:
-                    # Fix 0-1
-                    component_parameters[0] = [
-                        component_parameters[0][0],
-                        component_parameters[0][1],
-                        component_parameters[0][2]*0.5,
-                    ]
-                    component_parameters[1] = [
-                        component_parameters[1][0],
-                        component_parameters[1][1],
-                        component_parameters[1][2]*0.5,
-                    ]
-    
-                if v12:
-                    # Fix 1-2
-                    component_parameters[1] = [
-                        component_parameters[1][0],
-                        component_parameters[1][1],
-                        component_parameters[1][2]*0.5,
-                    ]
-                    component_parameters[2] = [
-                        component_parameters[2][0],
-                        component_parameters[2][1],
-                        component_parameters[2][2]*0.5,
-                    ]
-                
-        
-        # Check final
-        if density_constraint_violated(component_parameters[0], component_parameters[1], xlims) or \
-           density_constraint_violated(component_parameters[1], component_parameters[2], xlims):
-            return [[] for _ in range(n_components)]
+    trial = 0
+    while multicomponent_density_constraint_violated(xlims=xlims, param_sets=component_parameters) and trial < 300:
+        for i in range(n_components):
+            param = list(component_parameters[i])
+            param[2] = param[2]*0.95
+            component_parameters[i] = tuple(param)
+            trial += 1
+        min_scale = np.min([p[2] for p in component_parameters])
+        if min_scale < 1e-6:
+            break
+    if multicomponent_density_constraint_violated(xlims=xlims, param_sets=component_parameters):
+        return [[] for _ in range(n_components)]    
     else:
-        rep_failed = False
-        for compI, compJ in zip(range(0, n_components - 1), range(1, n_components)):
-            if rep_failed:
-                break
-                
-            # Try to fix this pair
-            attempts = 0
-            for attempts in range(300):
-                if not density_constraint_violated(
-                    component_parameters[compI], component_parameters[compJ], xlims
-                ):
-                    break
-
-                if param_to_adjust == 'skew':
-                    component_parameters[compI] = [
-                        component_parameters[compI][0] - 0.05 * abs(component_parameters[compI][0]),
-                        component_parameters[compI][1],
-                        component_parameters[compI][2],
-                    ]
-                    component_parameters[compJ] = [
-                        component_parameters[compJ][0] + 0.05 * abs(component_parameters[compJ][0]),
-                        component_parameters[compJ][1],
-                        component_parameters[compJ][2],
-                    ]
-                else:
-                    component_parameters[compI] = [
-                        component_parameters[compI][0],
-                        component_parameters[compI][1],
-                        component_parameters[compI][2]*0.5,
-                    ]
-                    component_parameters[compI] = [
-                        component_parameters[compI][0],
-                        component_parameters[compI][1],
-                        component_parameters[compI][2]*0.5,
-                    ]
-                    
-            
-            still_violated = density_constraint_violated(
-                component_parameters[compI], component_parameters[compJ], xlims
-            )
-            
-            if still_violated:
-                rep_failed = True
-                break
-        
-        if rep_failed:
-            return [[] for _ in range(n_components)]
+        return component_parameters
     
-    # Check all adjacent pairs are satisfied
-    for i in range(n_components - 1):
-        violated = density_constraint_violated(
-            component_parameters[i], component_parameters[i + 1], xlims
-        )
-        assert not violated, f"Components {i} and {i+1} violate constraint"
-    
-    return component_parameters
 
