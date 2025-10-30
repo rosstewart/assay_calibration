@@ -249,7 +249,7 @@ class Fit:
                     constrained,
                     init_methods[i],
                     init_constraint_adjustments[i],
-                    **kwargs,
+                    **{**kwargs, "lambdaIndex": i % (2**num_components)}  # Merge dicts
                 )
                 for i in range(NUM_FITS)
                 for num_components in component_range
@@ -311,7 +311,7 @@ class Fit:
             np.random.seed(bootstrap_seed)  # Ensure reproducibility
             init_methods = np.random.choice(["kmeans", "method_of_moments"], size=NUM_FITS)
         
-        init_constraint_adjustment = kwargs.get("init_constraint_adjustment_param", "skew")
+        init_constraint_adjustment = "scale"#kwargs.get("init_constraint_adjustment_param", "skew")
         if init_constraint_adjustment != 'random':
             init_constraint_adjustments = np.full(NUM_FITS, init_constraint_adjustment)
         else:
@@ -322,6 +322,7 @@ class Fit:
         jobs = []
         for i in range(NUM_FITS):
             for num_components in component_range:
+                kwargs["lambdaIndex"] = i%(2**num_components)
                 job = {
                     'job_id': f"b{bootstrap_seed}_f{i}_c{num_components}",
                     'bootstrap_seed': bootstrap_seed,
