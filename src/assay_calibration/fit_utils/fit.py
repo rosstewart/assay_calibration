@@ -345,11 +345,11 @@ class Fit:
     def execute_fit_job(job):
         """Execute a single fit job and save immediately."""
         # Check if already completed (for resumability)
-        save_path = f"{job['save_dir']}/{job['dataset_name']}_b{job['bootstrap_seed']}_c{job['num_components']}_f{job['fit_idx']}.pkl"
-        if os.path.exists(save_path):
-            # print(f"Skipping existing: {save_path}")
-            return None
-    
+        #save_path = f"{job['save_dir']}/{job['dataset_name']}_b{job['bootstrap_seed']}_c{job['num_components']}_f{job['fit_idx']}.pkl"
+        #if os.path.exists(save_path):
+        #    # print(f"Skipping existing: {save_path}")
+        #    return None
+
         # print(f"Running {save_path}...",flush=True)
         
         try:
