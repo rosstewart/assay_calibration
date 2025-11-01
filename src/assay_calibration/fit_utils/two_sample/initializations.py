@@ -170,13 +170,14 @@ def methodOfMomentsInit(X, n_components, constrained, max_attempts=1000, **kwarg
             params = tuple(params)
 
             component_parameters.append(params)
-        max_scale = np.max([p[2] for p in component_parameters])
-        for i in range(len(component_parameters)):
-            param = list(component_parameters[i])
-            param[2] = max_scale
-            component_parameters[i] = tuple(param)  
 
         if success and all(len(params) > 0 for params in component_parameters):
+            
+            max_scale = np.max([p[2] for p in component_parameters])
+            for i in range(len(component_parameters)):
+                param = list(component_parameters[i])
+                param[2] = max_scale
+                component_parameters[i] = tuple(param)  
 
             # enforce constraint and return
             if constrained:
