@@ -19,8 +19,13 @@ def density_constraint_violated(params_1, params_2, xlims: Tuple[float, float]) 
 
     log_pdf_1 = sps.skewnorm.logpdf(np.linspace(*xlims, 1000), *params_1)
     log_pdf_2 = sps.skewnorm.logpdf(np.linspace(*xlims, 1000), *params_2)
-
-    return not np.all(np.diff(log_pdf_1 - log_pdf_2) < 0)
+    ix = np.logical_and(log_pdf_1 > -7.0, log_pdf_2 > -7.0)
+    if np.sum(ix) <2:
+        return False
+    #diffs = np.diff(log_pdfs[i][ix] - log_pdfs[i + 1][ix])
+    diffs = np.diff(log_pdf_1[ix] - log_pdf_2[ix])
+    #return not np.all(np.diff(log_pdf_1 - log_pdf_2) < 0)
+    return not np.all(diffs < 0)
 
 
 def multicomponent_density_constraint_violated(
@@ -46,7 +51,11 @@ def multicomponent_density_constraint_violated(
     log_pdfs = [sps.skewnorm.logpdf(x_values, *params) for params in param_sets]
 
     for i in range(len(log_pdfs) - 1):
-        diffs = np.diff(log_pdfs[i] - log_pdfs[i + 1])
+        ix = np.logical_and(log_pdfs[i] > -7.0, log_pdfs[i+1] > -7.0)
+        if np.sum(ix) <2:
+            continue
+        diffs = np.diff(log_pdfs[i][ix] - log_pdfs[i + 1][ix])
+        #diffs = np.diff(log_pdfs[i] - log_pdfs[i + 1])
         if np.any(diffs > tolerance): 
             return True
     

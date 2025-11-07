@@ -208,19 +208,32 @@ class Fit:
                 print(
                     f"Running {NUM_FITS} fits for each of {len(component_range)} components sequentially"
                 )
-            models = [
-                tryToFit(
-                    train_observations,
-                    train_sample_assignments,
-                    num_components,
-                    constrained,
-                    init_methods[i],
-                    init_constraint_adjustments[i],
-                    **kwargs,
-                )
-                for i in range(NUM_FITS)
-                for num_components in component_range
-            ]
+            # models = [
+            #     tryToFit(
+            #         train_observations,
+            #         train_sample_assignments,
+            #         num_components,
+            #         constrained,
+            #         init_methods[i],
+            #         init_constraint_adjustments[i],
+            #         **kwargs,
+            #     )
+            #     for i in range(NUM_FITS)
+            #     for num_components in component_range
+            # ]
+            models = []
+            for num_components in component_range:
+                for i in range(NUM_FITS):
+                    kwargs["lambdaIndex"] = i%(2**num_components)
+                    models.append(tryToFit(
+                        train_observations,
+                        train_sample_assignments,
+                        num_components,
+                        constrained,
+                        init_methods[i],
+                        init_constraint_adjustments[i],
+                        **kwargs,
+                    ))
         else:
             verbosity = 0
             if kwargs.get("verbose", False):
@@ -236,7 +249,7 @@ class Fit:
                     constrained,
                     init_methods[i],
                     init_constraint_adjustments[i],
-                    **kwargs,
+                    **{**kwargs, "lambdaIndex": i % (2**num_components)}  # Merge dicts
                 )
                 for i in range(NUM_FITS)
                 for num_components in component_range
@@ -298,7 +311,7 @@ class Fit:
             np.random.seed(bootstrap_seed)  # Ensure reproducibility
             init_methods = np.random.choice(["kmeans", "method_of_moments"], size=NUM_FITS)
         
-        init_constraint_adjustment = kwargs.get("init_constraint_adjustment_param", "skew")
+        init_constraint_adjustment = "scale"#kwargs.get("init_constraint_adjustment_param", "skew")
         if init_constraint_adjustment != 'random':
             init_constraint_adjustments = np.full(NUM_FITS, init_constraint_adjustment)
         else:
@@ -309,6 +322,7 @@ class Fit:
         jobs = []
         for i in range(NUM_FITS):
             for num_components in component_range:
+                kwargs["lambdaIndex"] = i%(2**num_components)
                 job = {
                     'job_id': f"b{bootstrap_seed}_f{i}_c{num_components}",
                     'bootstrap_seed': bootstrap_seed,
@@ -331,11 +345,11 @@ class Fit:
     def execute_fit_job(job):
         """Execute a single fit job and save immediately."""
         # Check if already completed (for resumability)
-        save_path = f"{job['save_dir']}/{job['dataset_name']}_b{job['bootstrap_seed']}_c{job['num_components']}_f{job['fit_idx']}.pkl"
-        if os.path.exists(save_path):
-            # print(f"Skipping existing: {save_path}")
-            return None
-    
+        #save_path = f"{job['save_dir']}/{job['dataset_name']}_b{job['bootstrap_seed']}_c{job['num_components']}_f{job['fit_idx']}.pkl"
+        #if os.path.exists(save_path):
+        #    # print(f"Skipping existing: {save_path}")
+        #    return None
+
         # print(f"Running {save_path}...",flush=True)
         
         try:
@@ -597,19 +611,6 @@ def thresholds_from_prior(prior, point_values,**kwargs) -> Tuple[np.ndarray, np.
 
     return lrThresholdP, lrThresholdB, C
     
-    # exp_vals = 1 / np.array(point_values).astype(float)
-    # exp_vals = np.array(point_values).astype(float) / len(point_values)
-    
-    # pathogenic_evidence_thresholds = np.ones(len(point_values)) * np.nan
-    # benign_evidence_thresholds = np.ones(len(point_values)) * np.nan
-
-    # for strength_idx, exp_val in enumerate(exp_vals):
-    #     pathogenic_evidence_thresholds[strength_idx] = C**exp_val
-    #     benign_evidence_thresholds[strength_idx] = C**-exp_val
-
-
-    
-    return pathogenic_evidence_thresholds[::-1], benign_evidence_thresholds[::-1], C
     
 def assign_p(lr, tau,points):
     for i, t in enumerate(tau):
