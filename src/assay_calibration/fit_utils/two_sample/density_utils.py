@@ -11,6 +11,8 @@ def mixture_pdf(x, params, weights):
     """
     return logsumexp(log_joint_densities(x, params, weights), axis=0)
 
+def get_log_fPB(X, params, weights):
+    return np.log(joint_densities(X, params, weights).sum(0))
 
 def joint_densities(x, params, weights):
     """
