@@ -17,10 +17,11 @@ import numpy as np
 from tqdm.auto import trange
 import os
 sys.path.append(str(Path(os.getcwd()).parent))
+from src.assay_calibration.data_utils.dataset_clinvar_version_functionality import (
+    Scoreset as Scoreset_clinvar_func,
+)
 from src.assay_calibration.data_utils.dataset import (
-    PillarProjectDataframe,
     Scoreset,
-    BasicScoreset,
 )
 import json
 import glob
@@ -38,7 +39,20 @@ def process_dataset(dataset_file, output_dir, N_BOOTSTRAPS, NUM_FITS):
     os.makedirs(save_dir, exist_ok=True)
     
     # Load dataset once
-    ds = Scoreset.from_json(dataset_file)
+    clinvar_release = '2018' if 'clinvar_2018' in dataset_name else '2025'
+    if "not_clinvar_2018" in dataset_name:
+        clinvar_release = '2025'
+    
+    if 'clinvar_2018' in dataset_name:
+        ds = Scoreset_clinvar_func.from_json(dataset_file, 
+                            clinvar_release=clinvar_release,
+                            min_clinvar_star=1)
+    else:
+        ds = Scoreset.from_json(dataset_file)
+
+    n_samples = len([s for s in ds.samples])
+    assert n_samples >= 3
+    
     fitter = Fit(ds)
     
     all_jobs = []
@@ -59,6 +73,15 @@ def process_dataset(dataset_file, output_dir, N_BOOTSTRAPS, NUM_FITS):
             check_monotonic=True,
             num_fits=NUM_FITS
         )
+
+        jobs_4c = None
+        if 'VHL_Buckley_2024' in dataset_name:
+            jobs_4c = fitter.generate_fit_jobs(
+                component_range=[4],
+                bootstrap_seed=bootstrap_iter,
+                check_monotonic=True,
+                num_fits=NUM_FITS
+            )
         
         # Extract shared data from first job (all jobs in a bootstrap share train/val splits)
         if jobs_2c:
@@ -99,6 +122,22 @@ def process_dataset(dataset_file, output_dir, N_BOOTSTRAPS, NUM_FITS):
                 'kwargs': job['kwargs']
             }
             jobs_3c_minimal.append(minimal_job)
+
+        
+        jobs_4c_minimal = []
+        if jobs_4c is not None:
+            for job in jobs_4c:
+                minimal_job = {
+                    'job_id': job['job_id'],
+                    'bootstrap_seed': job['bootstrap_seed'],
+                    'fit_idx': job['fit_idx'],
+                    'num_components': job['num_components'],
+                    'constrained': job['constrained'],
+                    'init_method': job['init_method'],
+                    'init_constraint_adjustment': job['init_constraint_adjustment'],
+                    'kwargs': job['kwargs']
+                }
+                jobs_4c_minimal.append(minimal_job)
         
         # Consolidate into one job containing shared data + minimal job specs
         consolidated_job = {
@@ -109,7 +148,8 @@ def process_dataset(dataset_file, output_dir, N_BOOTSTRAPS, NUM_FITS):
             'shared_data': shared_data,  # Shared train/val splits
             'jobs_2c': jobs_2c_minimal,  # Just the fit parameters
             'jobs_3c': jobs_3c_minimal,  # Just the fit parameters
-            'num_fits_total': len(jobs_2c_minimal) + len(jobs_3c_minimal)
+            'jobs_4c': jobs_4c_minimal,  # Just the fit parameters
+            'num_fits_total': len(jobs_2c_minimal) + len(jobs_3c_minimal) + len(jobs_4c_minimal)
         }
         
         all_jobs.append(consolidated_job)
@@ -126,14 +166,14 @@ def generate_job_manifest(target_array_size=1000, n_jobs=30):
         n_jobs: Number of parallel workers for job generation
     """
     
-    output_dir = "/data/ross/assay_calibration/explorer_jobs_unconstrained_rerun"
+    output_dir = "/data/ross/assay_calibration/explorer_jobs_12_01_25_rerun"
     jobs_dir = f"{output_dir}/jobs"
     os.makedirs(jobs_dir, exist_ok=True)
     
     N_BOOTSTRAPS = 1000
     NUM_FITS = 100  # fits per bootstrap per component
     
-    dataset_files = glob.glob("/data/ross/assay_calibration/scoresets_unconstrained_rerun/*.json")
+    dataset_files = glob.glob("/data/ross/assay_calibration/scoresets_12_01_25_rerun/*.json")
     
     print(f"Generating consolidated jobs from {len(dataset_files)} datasets...")
     print(f"Target array size: {target_array_size}")
@@ -441,7 +481,7 @@ if __name__ == "__main__":
                        help='Number of parallel workers for job generation (default: 30)')
     args = parser.parse_args()
     
-    output_dir = "/data/ross/assay_calibration/explorer_jobs_unconstrained_rerun"
+    output_dir = "/data/ross/assay_calibration/explorer_jobs_12_01_25_rerun"
     
     print("="*80)
     print("HPC Job Array Setup - Consolidated Bootstrap Fits")

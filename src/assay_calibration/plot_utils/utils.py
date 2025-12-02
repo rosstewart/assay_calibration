@@ -12,6 +12,7 @@ from ..fit_utils.fit import (calculate_score_ranges,thresholds_from_prior)  # no
 from ..fit_utils.two_sample import density_utils  # noqa: E402
 from ..data_utils.dataset import Scoreset  # noqa: E402
 from ..fit_utils.utils import serialize_dict  # noqa: E402
+import matplotlib.gridspec as gridspec
 
 def plot_scoreset(scoreset:Scoreset, summary: Dict, scoreset_fits: List[Dict], score_range, use_median_prior,use_2c_equation, n_c, benign_method, C):
     fig, ax = plt.subplots(2,scoreset.n_samples, figsize=(5*scoreset.n_samples,10),sharex=True,sharey=False)
@@ -386,10 +387,24 @@ def plot_scoreset_best_config(dataset, scoreset, indv_summary, fits, score_range
     for sample_num in range(n_samples):
         ax_fit = ax[0, sample_num]
         
-        sns.histplot(scoreset.scores[scoreset.sample_assignments[:,sample_num]], 
-                     stat='density', ax=ax_fit, alpha=.5, color='pink')
-
-        max_hist_density = max([patch.get_height() for patch in ax_fit.patches])
+        # Get sample mask
+        sample_mask = scoreset.sample_assignments[:,sample_num]
+        
+        # Plot based on sample number (which category)
+        if sample_num == 0:  # P/LP
+            sns.histplot(scoreset.scores[sample_mask], 
+                         stat='density', ax=ax_fit, alpha=0.6, color='#CA7682')
+        elif sample_num == 1:  # B/LB
+            sns.histplot(scoreset.scores[sample_mask], 
+                         stat='density', ax=ax_fit, alpha=0.6, color='#1D7AAB')
+        elif sample_num == 2:  # gnomAD
+            sns.histplot(scoreset.scores[sample_mask], 
+                         stat='density', ax=ax_fit, alpha=0.3, color='#A0A0A0')
+        elif sample_num == 3:  # Synonymous
+            sns.histplot(scoreset.scores[sample_mask], 
+                         stat='density', ax=ax_fit, alpha=0.5, color='#6BAA75')
+    
+        max_hist_density = max([patch.get_height() for patch in ax_fit.patches]) if ax_fit.patches else 1.0
         
         density = sample_density(score_range, fits, sample_num)
         for compNum in range(density.shape[1]):
@@ -402,7 +417,7 @@ def plot_scoreset_best_config(dataset, scoreset, indv_summary, fits, score_range
         d_perc = np.percentile(d, [5,50,95], axis=0)
         ax_fit.plot(score_range, d_perc[1], color='black', alpha=.5)
         ax_fit.fill_between(score_range, d_perc[0], d_perc[2], color='gray', alpha=0.3)
-        ax_fit.set_title(f"{n_c}{relax_code}: {scoreset.sample_names[sample_num]}\n(n={scoreset.sample_assignments[:,sample_num].sum():,d})")
+        ax_fit.set_title(f"{n_c}{relax_code}: {scoreset.sample_names[sample_num].replace('population','gnomAD')}\n(n={scoreset.sample_assignments[:,sample_num].sum():,d})")
         ax_fit.set_xlabel("Score")
         ax_fit.set_ylabel("Density")
         ax_fit.set_ylim([0, max_hist_density * 1.1])
@@ -591,5 +606,482 @@ def plot_scoreset_best_config(dataset, scoreset, indv_summary, fits, score_range
     
     plt.tight_layout()
     fig.suptitle(f"{dataset} - {n_c}{relax_code} {config}", fontsize=16, y=0.998)
+    
+    return fig
+
+
+def plot_scores_only(dataset, scoreset):
+
+    
+    n_samples = len([s for s in scoreset.samples])
+    score_range = [min(scoreset.scores), max(scoreset.scores)]
+    
+    # Create figure: 3 rows, n_samples columns (all square)
+    fig, ax = plt.subplots(1, n_samples, figsize=(7*n_samples, 6), 
+                           squeeze=False, gridspec_kw={'hspace': 0.3, 'wspace': 0.3})
+
+    
+    # ===== Row 0: Sample fits =====
+    for sample_num in range(n_samples):
+        ax_fit = ax[0, sample_num]
+        
+        sns.histplot(scoreset.scores[scoreset.sample_assignments[:,sample_num]], 
+                     stat='density', ax=ax_fit, alpha=.5, color='pink')
+
+        max_hist_density = max([patch.get_height() for patch in ax_fit.patches])
+        
+        # density = sample_density(score_range, fits, sample_num)
+        # for compNum in range(density.shape[1]):
+        #     compDensity = density[:,compNum,:]
+        #     d = np.nanpercentile(compDensity,[5,50,95],axis=0)
+        #     ax_fit.plot(score_range, d[1], color=f"C{compNum}", linestyle='--', label=f"Comp {compNum+1}")
+        # ax_fit.legend(fontsize=8)
+        
+        # d = np.nansum(density, axis=1)
+        # d_perc = np.percentile(d, [5,50,95], axis=0)
+        # ax_fit.plot(score_range, d_perc[1], color='black', alpha=.5)
+        # ax_fit.fill_between(score_range, d_perc[0], d_perc[2], color='gray', alpha=0.3)
+        ax_fit.set_title(f"{scoreset.sample_names[sample_num]}\n(n={scoreset.sample_assignments[:,sample_num].sum():,d})")
+        ax_fit.set_xlabel("Score")
+        ax_fit.set_ylabel("Density")
+        ax_fit.set_ylim([0, max_hist_density * 1.1])
+        ax_fit.grid(linewidth=0.5, alpha=0.3)
+        
+    fig.suptitle(dataset)
+    
+    return fig
+
+def plot_scoreset_example_publication(dataset, scoreset, indv_summary, fits, score_range, config, n_c, n_samples, relax=False, flipped=False, debug=False):
+    """
+    Plot each sample in separate vertical subplots with all thresholds overlayed.
+    
+    Parameters: (same as original)
+    """
+    
+    # Sample colors matching the original plot
+    sample_colors = ['#CA7682', '#1D7AAB', '#A0A0A0', '#6BAA75']  # P/LP, B/LB, gnomAD, Synonymous
+    sample_alphas = [0.6, 0.6, 0.3, 0.5]
+    
+    # Threshold configuration for benign (negative) and pathogenic (positive)
+    point_values_to_plot = [1, 2, 3, 4, 8]
+    linestyles = ['dotted', 'dashed', 'dashdot', (5, (10, 3)), (0, (3, 5, 1, 5))]
+    linewidths = [1.5, 1.5, 1.5, 1.5, 1.5]
+    labels_thresh = ['Supporting', 'Moderate', 'Moderate+', 'Strong', 'Very Strong']
+    
+    relax_code = "R" if relax else ""
+    
+    # Create figure with n_samples rows
+    scale = 4
+    fig, axes = plt.subplots(n_samples, 1, figsize=(2*scale, scale*n_samples), squeeze=False)
+    axes = axes.flatten()
+    
+    # Get point ranges for threshold plotting
+    point_ranges = indv_summary['point_ranges']
+    
+    # Plot each sample in its own subplot
+    for sample_num in range(n_samples):
+        ax = axes[sample_num]
+        sample_mask = scoreset.sample_assignments[:, sample_num]
+        sample_name = scoreset.sample_names[sample_num]
+        
+        # Plot histogram for this sample
+        sns.histplot(scoreset.scores[sample_mask], 
+                     stat='density', ax=ax, 
+                     alpha=sample_alphas[sample_num], 
+                     color=sample_colors[sample_num])
+                     # label=sample_name)
+        
+        max_hist_density = max([patch.get_height() for patch in ax.patches]) if ax.patches else 1.0
+        
+        # Plot fitted density curves with matching color
+        density_sample = sample_density(score_range, fits, sample_num)
+        
+        # Plot sum of components
+        d = np.nansum(density_sample, axis=1)
+        d_perc = np.percentile(d, [5, 50, 95], axis=0)
+        ax.plot(score_range, d_perc[1], 
+               color='black', 
+               alpha=0.5,
+               linewidth=2)
+        ax.fill_between(score_range, d_perc[0], d_perc[2], 
+                       color='gray', 
+                       alpha=0.3)
+        
+        import matplotlib.lines as mlines
+
+        # Add threshold lines for all point values (both positive and negative)
+        for idx, point_val in enumerate(point_values_to_plot):
+            # Find benign threshold (negative point value)
+            for pv, score_ranges in point_ranges.items():
+                if pv == -point_val:
+                    for sr in score_ranges:
+                        threshold_score = sr[0] if not flipped else sr[1]
+                        ax.axvline(threshold_score, 
+                                  color='b',
+                                  linestyle=linestyles[idx],
+                                  linewidth=linewidths[idx],
+                                  alpha=0.7)
+                                  # label=f"-{point_val}")
+                        break
+                    break
+            
+            # Find pathogenic threshold (positive point value)
+            for pv, score_ranges in point_ranges.items():
+                if pv == point_val:
+                    for sr in score_ranges:
+                        threshold_score = sr[1] if not flipped else sr[0]
+                        ax.axvline(threshold_score, 
+                                  color='r',
+                                  linestyle=linestyles[idx],
+                                  linewidth=linewidths[idx],
+                                  alpha=0.7)
+                                  # label=f"+{point_val}")
+                        break
+                    break
+
+        handles = []
+        for idx, point_val in enumerate(point_values_to_plot):
+            if len(point_ranges[point_val]) != 0 or len(point_ranges[-point_val]) != 0:
+                h = mlines.Line2D(
+                    [], [],
+                    color='gray',
+                    linestyle=linestyles[idx],
+                    linewidth=linewidths[idx],
+                    label=f"±{point_val}"
+                )
+                handles.append(h)
+
+        if sample_name != "gnomAD":
+            ax.set_title(f"{sample_name} (n={sample_mask.sum():,d})", fontsize=16, fontweight='bold')
+        else:
+            ax.set_title(f"{sample_name} (n={sample_mask.sum():,d}, prior={indv_summary['prior']:.3f})", fontsize=16, fontweight='bold')
+        ax.set_xlabel("Assay score", fontsize=14)
+        ax.set_ylabel("Density", fontsize=14)
+        ax.set_ylim([0, max_hist_density * 1.1])
+        ax.legend(fontsize=11, loc='best', ncol=1, handles=handles)
+        ax.grid(linewidth=0.5, alpha=0.3)
+    
+    plt.tight_layout()
+    
+    return fig
+
+def plot_scoreset_calibration_comparison(dataset, scoreset, indv_summary, fits, score_range, config, n_c, n_samples, relax=False, flipped=False, debug=False):
+    """
+    Plot histogram with P/LP, B/LB, all SNVs, threshold lines, and calibration comparisons below.
+    """
+    
+    # Threshold configuration
+    point_values_to_plot = [1, 2, 3, 4, 8]
+    linestyles = ['dotted', 'dashed', 'dashdot', (5, (10, 3)), (0, (3, 5, 1, 5))]
+    linewidths = [1.5, 1.5, 1.5, 1.5, 1.5]
+    
+    # Strength colors for calibration bars
+    strenth_color = {
+        "BP4_Very Strong": "#4b91a6",
+        "BP4_Strong": "#7ab5d1",
+        "-3": "#99c8dc",
+        "BP4_Moderate": "#d0e8f0",
+        "BP4_Supporting": "#e4f1f6",
+        "IR": "#e0e0e0",
+        "PP3_Supporting": "#e6b1b8",
+        "PP3_Moderate": "#d68f99",
+        "+3": "#ca7682",
+        "PP3_Strong": "#b85c6b",
+        "PP3_Very Strong": "#943744"
+    }
+    
+    relax_code = "R" if relax else ""
+    
+    # Create figure with GridSpec
+    fig = plt.figure(figsize=(18, 10))
+    gs = gridspec.GridSpec(4, 1, height_ratios=[2, 1, 1, 0.3], hspace=0.3)
+    
+    # Main histogram
+    ax1 = plt.subplot(gs[0])
+    # Jia 2021 (0-cutoff)
+    ax2 = plt.subplot(gs[1])
+    # DanZ-based calibration
+    ax3 = plt.subplot(gs[2])
+    # Legend axis
+    leg_ax = plt.subplot(gs[3])
+    leg_ax.axis('off')
+    
+    # Get all scores
+    all_scores = scoreset.snv_scores
+    x_min = min(all_scores.min(), scoreset.scores.min())
+    x_max = max(all_scores.max(), scoreset.scores.max())
+    bin_width = (x_max - x_min) / 50
+    
+    # Get point ranges for threshold plotting
+    point_ranges = indv_summary['point_ranges']
+    
+    # Assume first two samples are P/LP and B/LB
+    plp_mask = scoreset.sample_assignments[:, 0]
+    blb_mask = scoreset.sample_assignments[:, 1]
+    
+    # Plot histograms
+    sns.histplot(scoreset.scores[blb_mask], 
+                 binwidth=bin_width, color='#1D7AAB', alpha=0.6, ax=ax1, label='ClinVar B/LB')
+    sns.histplot(scoreset.scores[plp_mask], 
+                 binwidth=bin_width, color='#CA7682', alpha=0.6, ax=ax1, label='ClinVar P/LP')
+    
+    # Overlay all SNVs on secondary axis
+    ax1_twin = ax1.twinx()
+    sns.histplot(all_scores, binwidth=bin_width, color='#A0A0A0', alpha=0.3, ax=ax1_twin, label='All SNVs')
+    
+    # Add threshold vertical lines
+    threshold_scores_benign = []
+    threshold_scores_path = []
+    
+    for idx, point_val in enumerate(point_values_to_plot):
+        # Find benign threshold (negative point value)
+        for pv, score_ranges in point_ranges.items():
+            if pv == -point_val:
+                for sr in score_ranges:
+                    threshold_score = sr[0] if not flipped else sr[1]
+                    threshold_scores_benign.append(threshold_score)
+                    # ax1.axvline(threshold_score, 
+                    #           color='b',
+                    #           linestyle=linestyles[idx],
+                    #           linewidth=linewidths[idx],
+                    #           alpha=0.7)
+                    break
+                break
+        
+        # Find pathogenic threshold (positive point value)
+        for pv, score_ranges in point_ranges.items():
+            if pv == point_val:
+                for sr in score_ranges:
+                    threshold_score = sr[1] if not flipped else sr[0]
+                    threshold_scores_path.append(threshold_score)
+                    # ax1.axvline(threshold_score, 
+                    #           color='r',
+                    #           linestyle=linestyles[idx],
+                    #           linewidth=linewidths[idx],
+                    #           alpha=0.7)
+                    break
+                break
+    
+    ax1.set_xlim(x_min, x_max)
+    ax1_twin.set_xlim(x_min, x_max)
+    ax1.set_xlabel('')
+    ax1.set_ylabel('P/B variant count', fontsize=14)
+    ax1_twin.set_ylabel('SNV count', fontsize=14)
+    
+    # Combine legends
+    lines1, labels1 = ax1.get_legend_handles_labels()
+    lines2, labels2 = ax1_twin.get_legend_handles_labels()
+    
+    # Add threshold legend
+    import matplotlib.lines as mlines
+    threshold_handles = []
+    # for idx, point_val in enumerate(point_values_to_plot):
+    #     if point_val in point_ranges or -point_val in point_ranges:
+    #         h = mlines.Line2D([], [], color='gray', linestyle=linestyles[idx], 
+    #                         linewidth=linewidths[idx], label=f"±{point_val}")
+    #         threshold_handles.append(h)
+    
+    ax1.legend(lines1 + lines2 + threshold_handles, labels1 + labels2 + [h.get_label() for h in threshold_handles], 
+              loc='best', fontsize=11, ncol=1)
+    ax1_twin.get_legend().remove() if ax1_twin.get_legend() else None
+    ax1.set_title(f'MSH2 Functional Score', fontsize=22, fontweight='bold')
+    
+    # Row 2: Scott
+    ax2.axvspan(x_min, 0, color=strenth_color['BP4_Strong'], alpha=0.9)
+    ax2.axvspan(0, 0.4, color=strenth_color['IR'], alpha=0.9)
+    ax2.axvspan(0.4, x_max, color=strenth_color['PP3_Strong'], alpha=0.9)
+    
+    count_below_0 = (all_scores < 0).sum()
+    count_above_0 = (all_scores > 0.4).sum()
+    ax2.text(x_min/2, 5, f'{count_below_0}', ha='center', va='center', color='black', fontsize=13)
+    ax2.text(x_max/2, 5, f'{count_above_0}', ha='center', va='center', color='black', fontsize=13)
+    
+    ax2.set_xlim(x_min, x_max)
+    ax2.set_ylim(0, 10)
+    ax2.set_ylabel('SNV Count', fontsize=14)
+    ax2.set_yticks([])
+    ax2.set_xticks([])#[0], ['0'], fontsize=14)
+    ax2.set_title('Scott et al. (2022)', loc='left', pad=5, fontsize=18, style='italic')
+    ax2.grid(False)
+    
+    # Row 3: DanZ-based calibration with threshold intervals
+    # Build intervals from thresholds
+    threshold_scores_benign_sorted = sorted(threshold_scores_benign)  # -8, -4, -3, -2, -1
+    threshold_scores_path_sorted = sorted(threshold_scores_path)  # +1, +2, +3, +4, +8
+    
+    intervals = []
+    
+    # Benign intervals
+    # if len(threshold_scores_benign_sorted) >= 3:
+    intervals.append(("BP4_Moderate", x_min, threshold_scores_benign_sorted[0]))  # -3 and below
+    intervals.append(("BP4_Supporting", threshold_scores_benign_sorted[0], threshold_scores_benign_sorted[1]))  # -2
+
+    # print(threshold_scores_benign_sorted)
+    # print(threshold_scores_path_sorted)
+    
+    # IR interval
+    # if len(threshold_scores_benign_sorted) >= 5 and len(threshold_scores_path_sorted) >= 1:
+    intervals.append(("IR", threshold_scores_benign_sorted[1], threshold_scores_path_sorted[0]))
+    
+    # Pathogenic intervals
+    # if len(threshold_scores_path_sorted) >= 3:
+    intervals.append(("PP3_Supporting", threshold_scores_path_sorted[0], threshold_scores_path_sorted[1]))  # +1
+    intervals.append(("PP3_Moderate", threshold_scores_path_sorted[1], threshold_scores_path_sorted[2]))  # +2
+    intervals.append(("+3", threshold_scores_path_sorted[2], x_max))  # +3 and above
+    
+    for name, start, end in intervals:
+        ax3.axvspan(start, end, color=strenth_color[name], alpha=0.9)
+        count = ((all_scores >= start) & (all_scores < end)).sum()
+        if (end - start) > 0.2:
+            ax3.text((start + end) / 2, 5, str(count), ha='center', va='center', 
+                    fontsize=13, color='black')
+    
+    ax3.set_xlim(x_min, x_max)
+    ax3.set_ylim(0, 10)
+    ax3.set_ylabel('SNV Count', fontsize=14)
+    ax3.set_yticks([])
+    
+    # Set x-axis ticks at thresholds
+    all_thresholds = threshold_scores_benign_sorted + threshold_scores_path_sorted
+    ax3.set_xticks([])#all_thresholds, [f'{x:.2f}' for x in all_thresholds], rotation=60, fontsize=12)
+    ax3.set_title('Zeiberg et al. (2025)', loc='left', pad=5, fontsize=18, style='italic')
+    ax3.grid(False)
+    
+    # Legend for strength colors
+    from matplotlib.patches import Patch
+    legend_elements = [Patch(facecolor=strenth_color[name], label=name) for name in [
+        "BP4_Moderate", "BP4_Supporting", "IR", 
+        "PP3_Supporting", "PP3_Moderate", "+3"
+        # "BP4_Very Strong", "BP4_Strong", "-3", "BP4_Moderate", "BP4_Supporting", "IR", 
+        # "PP3_Supporting", "PP3_Moderate", "+3", "PP3_Strong", "PP3_Very Strong"
+    ]]
+    leg_ax.legend(handles=legend_elements, loc='center', ncol=6, frameon=False, fontsize=12)
+    
+    # plt.suptitle(f'MSH2 Assay', fontsize=22, fontweight='bold')
+    plt.tight_layout()
+    
+    return fig
+
+import matplotlib
+import pandas as pd
+def plot_confusion_mat(dataset, scoreset, indv_summary, fits, score_range, config, n_c, n_samples, relax=False, flipped=False, debug=False):
+    """
+    Plot confusion matrix comparing DanZ calibration vs Jia 2021 (0-cutoff).
+    Shows how P/LP and B/LB variants are classified into Benign/IR/Pathogenic ranges.
+    """
+    
+    # Get point ranges
+    point_ranges = indv_summary['point_ranges']
+    
+    # Assume first two samples are P/LP and B/LB
+    plp_scores = scoreset.scores[scoreset.sample_assignments[:, 0]]
+    blb_scores = scoreset.scores[scoreset.sample_assignments[:, 1]]
+    
+    # Determine benign, IR, and pathogenic score ranges for DanZ
+    benign_ranges = []
+    ir_ranges = []
+    pathogenic_ranges = []
+    
+    for pv, score_ranges in point_ranges.items():
+        if pv < 0:  # Benign
+            benign_ranges.extend(score_ranges)
+        elif pv > 0:  # Pathogenic
+            pathogenic_ranges.extend(score_ranges)
+    
+    # Count B/LB variants in each category (DanZ)
+    blb_in_benign = sum(any(start <= score <= end for start, end in benign_ranges) for score in blb_scores)
+    blb_in_path   = sum(any(start <= score <= end for start, end in pathogenic_ranges) for score in blb_scores)
+    
+    # IR = NOT benign AND NOT path
+    blb_in_ir = sum(
+        not any(start <= score <= end for start, end in benign_ranges) and
+        not any(start <= score <= end for start, end in pathogenic_ranges)
+        for score in blb_scores
+    )
+    
+    # Count P/LP variants in each category (DanZ)
+    plp_in_benign = sum(any(start <= score <= end for start, end in benign_ranges) for score in plp_scores)
+    plp_in_path   = sum(any(start <= score <= end for start, end in pathogenic_ranges) for score in plp_scores)
+    
+    plp_in_ir = sum(
+        not any(start <= score <= end for start, end in benign_ranges) and
+        not any(start <= score <= end for start, end in pathogenic_ranges)
+        for score in plp_scores
+    )
+
+    
+    # Create DanZ DataFrame
+    danz = pd.DataFrame({
+        'BLB': [blb_in_benign, blb_in_ir, blb_in_path],
+        'PLP': [plp_in_benign, plp_in_ir, plp_in_path]
+    }).T
+
+    
+    # Count for Jia 2021 (0-cutoff)
+    blb_below_0 = (blb_scores < 0).sum()
+    blb_above_0 = (blb_scores > 0).sum()
+    plp_below_0 = (plp_scores < 0).sum()
+    plp_above_0 = (plp_scores > 0).sum()
+    
+    # Create Jia 2021 DataFrame
+    auth = pd.DataFrame({
+        'BLB': [blb_below_0, 0, blb_above_0],
+        'PLP': [plp_below_0, 0, plp_above_0]
+    }).T
+    
+    ind = ['Normal', 'IR', 'Abnormal']
+    danz.columns = ind
+    auth.columns = ind
+    
+    print(danz)
+    print(auth)
+    
+    if debug:
+        print("DanZ counts:")
+        print(danz)
+        print("\nJia 2021 counts:")
+        print(auth)
+    
+    # Calculate row-wise percentages
+    danz_percent = danz.div(danz.sum(axis=1), axis=0) * 100
+    auth_percent = auth.div(auth.sum(axis=1), axis=0) * 100
+    difference = (danz_percent - auth_percent)
+    
+    # Create custom colormap
+    from matplotlib.colors import LinearSegmentedColormap, BoundaryNorm
+    colors = ["gold", "whitesmoke", "purple"]
+    cmap_custom = LinearSegmentedColormap.from_list("PurpleYellow", colors)
+    max_abs_value = 10  # Maximum absolute value for scale
+    step = 1            # Step size between bounds
+    
+    posbounds = np.arange(0, max_abs_value + step, step)
+    negbounds = -np.arange(step, max_abs_value + step, step)[::-1]
+    bounds = np.concatenate([negbounds, posbounds])
+    norm = BoundaryNorm(bounds, cmap_custom.N)
+    
+    def format_diff_value(x):
+        if abs(x) < 0.1:  # Only show differences ≥ 0.1%
+            return f"{x:+.2f}%"
+        return f"{x:+.1f}%"
+    
+    format_array = np.vectorize(format_diff_value)
+    annot_data = format_array(difference)
+    
+    # Create heatmap
+    fig = plt.figure(figsize=(10, 3))
+    sns.heatmap(difference, 
+                annot=annot_data, fmt='',
+                cmap=cmap_custom, 
+                norm=norm,
+                cbar_kws={'label': 'Percentage Point Difference', 'pad': 0.01},
+                linewidths=0.5,
+                linecolor='gray')
+    
+    relax_code = "R" if relax else ""
+    plt.title(f'{dataset.split("_")[0]}: Zeiberg et al. (2025) vs. Author Difference', 
+              fontsize=14, fontweight='bold')
+    plt.ylabel('ClinVar Classification', fontsize=12)
+    plt.xlabel('Functional Category', fontsize=12)
+    plt.tight_layout()
     
     return fig

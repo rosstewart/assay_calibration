@@ -24,6 +24,7 @@ logging.root.setLevel(logging.ERROR)
 logger = logging.getLogger(__name__)
 
 
+
 def tryToFit(observations, sample_indicators, num_components, constrained, init_method, init_constraint_adjustment, **kwargs):
     fit_results = single_fit(observations, sample_indicators, num_components, constrained, init_method, init_constraint_adjustment, **kwargs)
     return fit_results
@@ -485,6 +486,7 @@ class Fit:
                 break
         return prior_estimate
 
+
     def get_log_lrPlus(self, x, pathogenic_idx=0, controls_idx=1):
         fP = self.joint_densities(x,pathogenic_idx)
         fB = self.joint_densities(x,controls_idx)
@@ -507,6 +509,7 @@ class Fit:
         (
             score_ranges_pathogenic,
             score_ranges_benign,
+            C
         ) = calculate_score_ranges(
             log_LR, log_LR, prior, uscores, point_values
         )
@@ -587,15 +590,26 @@ def thresholds_from_prior(prior, point_values,**kwargs) -> Tuple[np.ndarray, np.
 
 
     """
-    exp_vals = 1 / np.array(point_values).astype(float)
     C = get_tavtigian_constant(prior,**kwargs)
-    pathogenic_evidence_thresholds = np.ones(len(point_values)) * np.nan
-    benign_evidence_thresholds = np.ones(len(point_values)) * np.nan
 
-    for strength_idx, exp_val in enumerate(exp_vals):
-        pathogenic_evidence_thresholds[strength_idx] = C**exp_val
-        benign_evidence_thresholds[strength_idx] = C**-exp_val
-    return pathogenic_evidence_thresholds[::-1], benign_evidence_thresholds[::-1]
+    lrThresholdP = C**(np.array(point_values)/len(point_values))
+    lrThresholdB = 1/(C**(np.array(point_values)/len(point_values)))
+
+    return lrThresholdP, lrThresholdB, C
+    
+    # exp_vals = 1 / np.array(point_values).astype(float)
+    # exp_vals = np.array(point_values).astype(float) / len(point_values)
+    
+    # pathogenic_evidence_thresholds = np.ones(len(point_values)) * np.nan
+    # benign_evidence_thresholds = np.ones(len(point_values)) * np.nan
+
+    # for strength_idx, exp_val in enumerate(exp_vals):
+    #     pathogenic_evidence_thresholds[strength_idx] = C**exp_val
+    #     benign_evidence_thresholds[strength_idx] = C**-exp_val
+
+
+    
+    return pathogenic_evidence_thresholds[::-1], benign_evidence_thresholds[::-1], C
     
 def assign_p(lr, tau,points):
     for i, t in enumerate(tau):
@@ -633,12 +647,12 @@ def calculate_score_ranges(log_lrPlusLow, log_lrPlusHigh,prior, scores,point_val
     """
     {point_value: int -> (range_start:float, range_end:float)}
     """
-    lrThresholdP,lrThresholdB = thresholds_from_prior(prior, point_values,**kwargs)
+    lrThresholdP,lrThresholdB,C = thresholds_from_prior(prior, point_values,**kwargs)
     tauP = np.log(lrThresholdP)
     tauB = np.log(lrThresholdB)
     pathogenic_ranges = get_point_ranges(scores, log_lrPlusLow, tauP, point_values, "pathogenic")
     benign_ranges = get_point_ranges(scores, log_lrPlusHigh, tauB, point_values, "benign")
-    return pathogenic_ranges, benign_ranges
+    return pathogenic_ranges, benign_ranges, C
     
 def makeOneHot(sample_assignments):
     assert np.all(sample_assignments.any(axis=0))

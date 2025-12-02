@@ -10,74 +10,20 @@ from pathlib import Path
 from typing import Dict, Tuple, List
 from joblib import Parallel, delayed
 
-import matplotlib
-matplotlib.use('Agg')
-os.environ["MPLCONFIGDIR"] = "/tmp/matplotlib_cache"
-os.makedirs(os.environ["MPLCONFIGDIR"], exist_ok=True)
 logging.getLogger('matplotlib').setLevel(logging.ERROR)
-warnings.filterwarnings('ignore', module='matplotlib')
 
 import matplotlib.pyplot as plt
 import seaborn as sns
 
-plt.rcParams['path.simplify'] = True
+# plt.rcParams['path.simplify'] = True
 
 sys.path.append("..")
 from src.assay_calibration.fit_utils.fit import (calculate_score_ranges,thresholds_from_prior)  # noqa: E402
 from src.assay_calibration.fit_utils.two_sample import density_utils  # noqa: E402
-from src.assay_calibration.fit_utils.point_ranges import (enforce_monotonicity_point_ranges, prior_equation_2c, prior_invalid, get_fit_prior, get_bootstrap_score_ranges, remove_insufficient_bootstrap_converage_points, check_thresholds_reached)  # noqa: E402
+from src.assay_calibration.fit_utils.point_ranges import (enforce_monotonicity_point_ranges, prior_equation_2c, prior_invalid, get_fit_prior, extend_points_to_xlims, get_bootstrap_score_ranges, remove_insufficient_bootstrap_converage_points, check_thresholds_reached)  # noqa: E402
 from src.assay_calibration.data_utils.dataset import Scoreset  # noqa: E402
 from src.assay_calibration.fit_utils.utils import serialize_dict  # noqa: E402
 from src.assay_calibration.plot_utils.utils import plot_scoreset, plot_scoreset_compare_point_assignments, plot_summary, plot_scoreset_best_config
-
-import contextlib
-
-@contextlib.contextmanager
-def suppress_output():
-    with open(os.devnull, "w") as devnull:
-        old_stdout = sys.stdout
-        old_stderr = sys.stderr
-        sys.stdout = devnull
-        sys.stderr = devnull
-        try:
-            yield
-        finally:
-            sys.stdout = old_stdout
-            sys.stderr = old_stderr
-
-
-# In[ ]:
-
-
-constrained = True
-
-if constrained:
-    results_name = 'initial_datasets_results_1000bootstraps_100fits'
-    with gzip.open(f'/data/ross/assay_calibration/{results_name}.json.gz', 'rt', encoding='utf-8') as f:
-        results = json.load(f)
-    
-    results_name = 'clinvar_circ_datasets_results_1000bootstraps_100fits'
-    with gzip.open(f'/data/ross/assay_calibration/{results_name}.json.gz', 'rt', encoding='utf-8') as f:
-        results = {**results, **json.load(f)}
-
-    results_name = 'clinvar_2018_datasets_results_1000bootstraps_100fits'
-    with gzip.open(f'/data/ross/assay_calibration/{results_name}.json.gz', 'rt', encoding='utf-8') as f:
-        results = {**results, **json.load(f)}
-
-
-    results_name = 'semifinal_run_datasets_results_1000bootstraps_100fits'
-    with gzip.open(f'/data/ross/assay_calibration/{results_name}.json.gz', 'rt', encoding='utf-8') as f:
-        results_relax = json.load(f)
-
-else:
-    results_name = 'unconstrained_rerun_initial_datasets_results_1000bootstraps_100fits'
-    with gzip.open(f'/data/ross/assay_calibration/{results_name}.json.gz', 'rt', encoding='utf-8') as f:
-        results = json.load(f)
-
-del results['KCNH2_Kozek_Glazer_2020'] # ignore this dataset 
-
-
-# In[ ]:
 
 
 dataset_configs = {
@@ -182,7 +128,7 @@ dataset_relax_configs = {
     "DDX3X_Radford_2023_cLFC_day15": ("2c", "avg"),
     "DDX3X_Radford_2023_cLFC_day15_clinvar_2018": ("2c", "avg"),
     "FKRP_Ma_2024": ("3c", "avg"),
-    "G6PD_unpublished": ("3c", "avg"),
+    # "G6PD_unpublished": ("3c", "avg"),
     "HMBS_van_Loggerenberg_2023_combined": ("2c", "avg"),
     "HMBS_van_Loggerenberg_2023_erythroid": ("3c", "avg"),
     "HMBS_van_Loggerenberg_2023_ubquitous": ("3c", "avg"),
@@ -194,21 +140,46 @@ dataset_relax_configs = {
     "RAD51C_Olvera-León_2024_z_score_D4_D14": ("3c", "avg"), # ENFORCE 10e-3 on normalized densities 0-1 
     "RAD51C_Olvera-León_2024_z_score_D4_D14_clinvar_2018": ("3c", "avg"),
     "RAD51D_unpublished": ("2c", "avg"),
-    "TSC2_Calhoun_cliPE_unpublished": ("2c", "avg"),
-    "TSC2_Calhoun_immuneSGE_unpublished": ("2c", "avg"),
+    # "TSC2_Calhoun_cliPE_unpublished": ("2c", "avg"),
+    # "TSC2_Calhoun_immuneSGE_unpublished": ("2c", "avg"),
     "TSC2_tuberin_unpublished": ("3c", "avg"),
     "VHL_Buckley_2024": ("3c", "avg"),
     "VHL_Buckley_2024_clinvar_2018": ("3c", "avg"),
-    "XRCC2_unpublished": ("2c", "avg")
+    # "XRCC2_unpublished": ("2c", "avg"), 
+    
+    # new 11_22_25 rerun datasets (all relax)
+    "CALM1_CALM2_CALM3_Weile_2017": ("3c", "avg"),
+    "G6PD_unpublished": ("3c", "avg"),
+    "MSH2_Jia_2021_clinvar_2018": ("2c", "avg"),
+    "TP53_Boettcher_2019_clinvar_2018": ("2c", "avg"),
+    "TP53_Fortuno_2021_Kato_meta_clinvar_2018": ("2c", "avg"),
+    "TP53_Giacomelli_2018_combined_score_clinvar_2018": ("2c", "avg"),
+    "TP53_Giacomelli_2018_p53WT_Nutlin3_clinvar_2018": ("2c", "avg"),
+    "TP53_Giacomelli_2018_p53null_Nutlin3_clinvar_2018": ("2c", "avg"),
+    "TP53_Giacomelli_2018_p53null_etoposide_clinvar_2018": ("2c", "avg"),
+    "TP53_Kato_2003_AIP1nWT_clinvar_2018": ("3c", "avg"),
+    "TP53_Kato_2003_BAXnWT_clinvar_2018": ("2c", "avg"),
+    "TP53_Kato_2003_GADD45nWT_clinvar_2018": ("2c", "avg"),
+    "TP53_Kato_2003_MDM2nWT_clinvar_2018": ("3c", "avg"),
+    "TP53_Kato_2003_NOXAnWT_clinvar_2018": ("3c", "avg"),
+    "TP53_Kato_2003_P53R2nWT_clinvar_2018": ("2c", "avg"),
+    "TP53_Kato_2003_WAF1nWT_clinvar_2018": ("3c", "avg"),
+    "TP53_Kato_2003_h1433snWT_clinvar_2018": ("3c", "avg"),
+    "TPK1_Weile_2017": ("2c", "avg"),
+    "XRCC2_unpublished": ("2c", "avg"),
 }
 
 
 # In[ ]:
 
 
-plot_save_dir = '/data/ross/assay_calibration/calibrations_11_06_25'
+plot_save_dir = '/data/ross/assay_calibration/calibrations_11_30_25'
 
 def process_dataset(dataset, config, plot_save_dir, relax=False):
+
+    # dataset_results = dataset
+    dataset = dataset.replace("_NEW_not_clinvar_2018","")
+    point_values = [1,2,3,4,5,6,7,8]
 
     if not relax:
         if dataset in dataset_relax_configs:
@@ -252,6 +223,14 @@ def process_dataset(dataset, config, plot_save_dir, relax=False):
     with open(pkl_filepath,'rb') as f:
         scoreset, indv_summary, fits, score_range, _, n_c = pickle.load(f)
     n_samples = len([s for s in scoreset.samples])
+    
+    scoreset_figure = plot_scoreset_best_config(dataset, scoreset, indv_summary, fits, score_range, f'({benign_method})', n_c, n_samples, relax=relax, flipped=scoreset_flipped)
+    scoreset_figure.savefig(plot_save_f,bbox_inches='tight',dpi=300)
+    # plt.show(scoreset_figure)
+    plt.close(scoreset_figure)
+    # print(dataset,'done')
+
+    extend_points_to_xlims(indv_summary["point_ranges"], point_values, indv_summary["score_range"], scoreset_flipped, inf=True)
 
     with open(json_save_f,'w') as f:
         obj = {k: indv_summary[k] for k in ['prior','point_ranges']}
@@ -264,58 +243,14 @@ def process_dataset(dataset, config, plot_save_dir, relax=False):
         json.dump(obj, f, indent=2)
 
 
-    with suppress_output():
-        scoreset_figure = plot_scoreset_best_config(dataset, scoreset, indv_summary, fits, score_range, f'({benign_method})', n_c, n_samples, relax=relax, flipped=scoreset_flipped)
-        scoreset_figure.savefig(plot_save_f,bbox_inches='tight',dpi=300)
-        # plt.show(scoreset_figure)
-        plt.close(scoreset_figure)
-        # print(dataset,'done')
 
 n_cores = os.cpu_count() or 1
 
-with suppress_output():
-    Parallel(n_jobs=min(len(dataset_configs), n_cores), verbose=10)(delayed(process_dataset)(dataset, config, plot_save_dir, relax=False)
-                                               for dataset, config in dataset_configs.items())
-    
-    Parallel(n_jobs=min(len(dataset_relax_configs), n_cores), verbose=10)(delayed(process_dataset)(dataset, config, plot_save_dir, relax=True)
-                                               for dataset, config in dataset_relax_configs.items()])
 
-# for dataset, config in dataset_configs.items():
-#     process_dataset(dataset, config, plot_save_dir, relax=False)
+Parallel(n_jobs=min(len(dataset_configs), n_cores), verbose=10)(delayed(process_dataset)(dataset, config, plot_save_dir, relax=False)
+                                           for dataset, config in dataset_configs.items())
 
-# for dataset, config in dataset_relax_configs.items():
-#     process_dataset(dataset, config, plot_save_dir, relax=True)
+Parallel(n_jobs=min(len(dataset_relax_configs), n_cores), verbose=10)(delayed(process_dataset)(dataset, config, plot_save_dir, relax=True)
+                                           for dataset, config in dataset_relax_configs.items())
 
-
-# ### prepare dataset config labels
-
-# In[ ]:
-
-
-# print('{\n    "',end='')
-# print(*results.keys(),sep='": ("n_c", "benign_or_avg"),\n    "', end='')
-# print(': ("n_c", "benign_or_avg")\n}')
-
-
-# In[ ]:
-
-
-# print("""{
-#     "BAP1_Waters_2024_clinvar_2018": (“3c”, “avg”),
-#     "BRCA1_Adamovich_2022_Cisplatin_clinvar_2018": (“2c”, "avg"),
-#     "BRCA1_Adamovich_2022_HDR_clinvar_2018": (“2c”, "avg"),
-#     "BRCA1_Findlay_2018_clinvar_2018": (“2c”, "avg"),
-#     "BRCA2_Hu_2024_clinvar_2018": (“2c”, "avg"),
-#     "BRCA2_Sahu_2023_exon13_Cisplatin_clinvar_2018": (“3c”, "avg"),
-#     "BRCA2_Sahu_2023_exon13_Olaparib_clinvar_2018": (“2c”, “avg”),
-#     "BRCA2_Sahu_2023_exon13_SGE_clinvar_2018": (“3c”, “avg”),
-#     "BRCA2_Sahu_2023_exon13_global_score_clinvar_2018": (“3c”, “avg”),
-#     "BRCA2_Sahu_2025_HDR_clinvar_2018": (“2c”, “avg”),
-#     "BRCA2_unpublished_clinvar_2018": (“2c”, “avg”),
-#     "DDX3X_Radford_2023_cLFC_day15_clinvar_2018": (“2c”, “avg”),
-#     "PTEN_Matreyek_2018_clinvar_2018": (“2c”, “avg”),
-#     "PTEN_Mighell_2018_clinvar_2018": (“2c”, “avg”),
-#     "RAD51C_Olvera-León_2024_z_score_D4_D14_clinvar_2018": (“2c”, “avg”),
-#     "VHL_Buckley_2024_clinvar_2018: (“2c”, “benign”)
-# }""".replace('“','"').replace('”','"'))
 

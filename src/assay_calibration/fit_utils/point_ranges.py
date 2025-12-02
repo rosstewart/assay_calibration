@@ -110,8 +110,10 @@ def enforce_monotonicity_point_ranges(point_ranges, point_values, score_range, s
 
 
 
-def extend_points_to_xlims(point_ranges, point_values, score_range, scoreset_flipped, log_f=None):
+def extend_points_to_xlims(point_ranges, point_values, score_range, scoreset_flipped, log_f=None, inf=False):
     print('extending points to xlims...',file=log_f)
+    left = -np.inf if inf else score_range[0]
+    right = np.inf if inf else score_range[-1]
     for i in point_values:
         point = i # pathogenic
         if len(point_ranges[point]) != 0:
@@ -124,7 +126,7 @@ def extend_points_to_xlims(point_ranges, point_values, score_range, scoreset_fli
             
             if all_no_evidence:
                 # extend to xlims
-                point_ranges[point] = [[score_range[0], point_ranges[point][-1][-1]]] if not scoreset_flipped else [[point_ranges[point][0][0], score_range[-1]]]
+                point_ranges[point] = [[left, point_ranges[point][-1][-1]]] if not scoreset_flipped else [[point_ranges[point][0][0], right]]
                 
         point = -i # benign
         if len(point_ranges[point]) != 0:
@@ -137,7 +139,7 @@ def extend_points_to_xlims(point_ranges, point_values, score_range, scoreset_fli
             
             if all_no_evidence:
                 # extend to xlims
-                point_ranges[point] = [[score_range[0], point_ranges[point][-1][-1]]] if scoreset_flipped else [[point_ranges[point][0][0], score_range[-1]]]
+                point_ranges[point] = [[left, point_ranges[point][-1][-1]]] if scoreset_flipped else [[point_ranges[point][0][0], right]]
 
         
 def prior_equation_2c(w_p, w_b, w_g):

@@ -51,12 +51,11 @@ def _clean_clinsigs(values):
 
 
 class BasicScoreset:
-    def __init__(self, scores: np.ndarray, sample_assignments: np.ndarray,**kwargs):
+    def __init__(self, scores: np.ndarray, sample_assignments: np.ndarray):
         self.scores = scores
         self.sample_assignments = sample_assignments
         self.validate_inputs()
         self.validate_sample_assignments()
-        self.scoreset_name = kwargs.get("scoreset_name", "BasicScoreset")
 
     def validate_inputs(self):
         n_observations = self.scores.shape[0]
@@ -134,14 +133,6 @@ class BasicScoreset:
 
 class Scoreset:
     def __init__(self, dataframe: pd.DataFrame, **kwargs):
-        """
-        Required Arg:
-        - dataframe : pd.DataFrame : Pillar Project dataframe
-
-        Optional Arg:
-        - min_clinvar_star : int (default 1) : minimum review status (star count) to use Clinical Significance annotations
-        - clinvar_release : str in {'2025','2018'} (default '2025') : Clinvar release to use
-        """
         self._init_dataframe(dataframe, **kwargs)
 
     def to_json(self, output_path: Path | str):
@@ -172,6 +163,11 @@ class Scoreset:
         dataframe : pd.DataFrame
             The dataframe to create the scoreset from
 
+        Optional parameters
+        -------------------
+        five_sample : bool, default=False
+            Whether to include all missense SNV as the fifth sample.
+
         Returns
         -------
         Scoreset
@@ -182,51 +178,25 @@ class Scoreset:
     @classmethod
     def from_json(cls, json_path: Path | str, **kwargs):
         """
-        Create a Scoreset from a JSON or JSONL file.
-    
-        Automatically detects:
-          - Standard JSON object or list
-          - Newline-delimited JSON (JSONL)
-    
+        Create a Scoreset from a JSON file.
+
         Parameters
         ----------
         json_path : Path|str
-            Path to JSON/JSONL input file
-    
+            The path to the JSON file to create the scoreset from
+
         Returns
         -------
         Scoreset
-            A Scoreset initialized with parsed data
+            A Scoreset object initialized with the data from the JSON file
         """
         json_path = Path(json_path)
         if not json_path.exists():
             raise FileNotFoundError(f"JSON file not found: {json_path}")
-    
         with open(json_path, "r") as f:
-            text = f.read().strip()
-    
-        # Try standard JSON first
-        try:
-            data = json.loads(text)
-        except json.JSONDecodeError as e:
-            # Only fallback if this specific error indicates multiple objects
-            if "Extra data" not in str(e):
-                raise  # If it's a different JSON error, report it normally
-    
-            # Fallback for JSONL: parse line-by-line
-            try:
-                lines = [json.loads(line) for line in text.splitlines() if line.strip()]
-                data = lines  # list of JSON objects
-            except Exception:
-                raise ValueError(
-                    f"File is neither valid JSON nor JSONL: {json_path}\n"
-                    f"Original error: {e}"
-                )
-    
-        # Convert result into DataFrame
-        dataframe = pd.DataFrame.from_records(data)
+            data = json.load(f)
+        dataframe = pd.DataFrame.from_dict(data)  # type: ignore
         return cls(dataframe, **kwargs)
-
 
     def _init_dataframe(self, dataframe: pd.DataFrame, **kwargs):
         """
@@ -237,9 +207,6 @@ class Scoreset:
         dataframe : pd.DataFrame
             The dataframe to initialize the scoreset from
 
-        Optional Arg:
-            - min_clinvar_star : int (default 1) : minimum review status (star count) to use Clinical Significance annotations
-            - clinvar_release : str in {'2025','2018'} (default '2025') : Clinvar release to use
         Returns
         -------
         None
@@ -263,23 +230,34 @@ class Scoreset:
                 "dataframe must contain at least one row with a non-NaN auth_reported_score"
             )
         self.dataframe = dataframe
-        self.filter_invalid()
-        self.splicing_filter(**kwargs)
-        min_clinvar_star = kwargs.get("min_clinvar_star",1)
-        clinvar_release = kwargs.get("clinvar_release",'2025')
-        self.variants = [Variant(row,min_clinvar_star,clinvar_release) for _, row in self.dataframe.iterrows()]
+        self.filter_by_consequence(**kwargs)
+        self.variants = [Variant(row) for _, row in self.dataframe.iterrows()]
         self._init_matrices(**kwargs)
 
-    def filter_invalid(self):
-         self.dataframe = self.dataframe[self.dataframe.Flag != "*"]
-
-    def splicing_filter(self, **kwargs):
+    def filter_by_consequence(self, **kwargs):
+        self.missense_only = kwargs.get("missense_only", False)
         self.detects_splice = (
             self.dataframe.loc[:, "splice_measure"].unique()[0] == "Yes"  # type: ignore
         )
+        self.dataframe = self.dataframe[self.dataframe.Flag != "*"]
         if not self.detects_splice:
             self.dataframe = self.dataframe[
-                self.dataframe.simplified_consequence != "Splice Region"
+                self.dataframe.simplified_consequence.str.lower() != "splice region"
+            ]
+            self.dataframe = self.dataframe[
+                self.dataframe.simplified_consequence.str.lower() != "splice_site_variant"
+            ]
+            self.dataframe = self.dataframe[
+                (self.dataframe["spliceAI_DS_AG"] < 0.2) &
+                (self.dataframe["spliceAI_DS_AL"] < 0.2) &
+                (self.dataframe["spliceAI_DS_DG"] < 0.2) &
+                (self.dataframe["spliceAI_DS_DL"] < 0.2)
+            ]
+            
+            
+        if self.missense_only:
+            self.dataframe = self.dataframe[
+                self.dataframe.simplified_consequence.isin({"Missense", "Synonymous", "missense_variant", "synonymous_variant"})
             ]
 
     @staticmethod
@@ -314,89 +292,54 @@ class Scoreset:
         return len(self.variants)
 
     def _init_matrices(self, **kwargs):
-        """
-        Optional Arguments:
-        - population_type : str : one of {'all_variants',
-                                  'all_nsSNV',
-                                  'all_missense_nsSNV',
-                                  'gnomAD',
-                                  'gnomAD_nsSNV',
-                                  'gnomAD_missense_nsSNV'}
-        
-        """
         self.has_synomyous = any([variant.is_synonymous for variant in self.variants])
-        if self.has_synomyous:
-            self.NSamples = 4
-            self.sample_names = [
-                "Pathogenic/Likely Pathogenic",
-                "Benign/Likely Benign",
-                "population",
-                "Synonymous",
-            ]
-        else:
-            self.NSamples = 3
-            self.sample_names = [
-                "Pathogenic/Likely Pathogenic",
-                "Benign/Likely Benign",
-                "population",
-            ]
+        self.use_fifth_sample = kwargs.get('five_sample',False)
+        
+        self.NSamples = 3 + int(self.has_synomyous) + int(self.use_fifth_sample)
+        
+        self.sample_names = [
+            "Pathogenic/Likely Pathogenic",
+            "Benign/Likely Benign",
+            "gnomAD",
+            "Synonymous",
+            "All Missense SNV",
+        ][:self.NSamples]
+        
         variants_by_id = self.get_variants_by_id()
         self.n_variants = len(variants_by_id)
         self._sample_assignments = np.zeros(
             (self.n_variants, self.NSamples), dtype=bool
         )
         self._scores = np.zeros(self.n_variants)
+        self._snv_scores = []
+        self._aa_subs = np.empty(self.n_variants, dtype='U50')
         self._ids = []
         self._auth_labels = []
-        self.parse_population_type(**kwargs)
         for idx, (_id, variants) in enumerate(variants_by_id.items()):
             self._ids.append(_id)
             self._scores[idx] = variants[0].auth_reported_score
+            if variants[0].is_snv:
+                self._snv_scores.append(variants[0].auth_reported_score)
+            
+            try:
+                self._aa_subs[idx] = variants[0].aa_ref + str(int(variants[0].aa_pos)) + variants[0].aa_alt
+            except (ValueError, TypeError):
+                self._aa_subs[idx] = None
+            
             self._auth_labels.append(variants[0].auth_reported_func_class)
             if any([variant.is_synonymous for variant in variants]):
                 self._sample_assignments[idx, 3] = True
                 continue
-            if any([self.is_population_member(variant) for variant in variants]):
+            if any([variant.is_gnomAD for variant in variants]):
                 self._sample_assignments[idx, 2] = True
             if any([variant.is_pathogenic for variant in variants]):
                 self._sample_assignments[idx, 0] = True
             if any([variant.is_benign for variant in variants]):
                 self._sample_assignments[idx, 1] = True
-        keep_mask = self._sample_assignments.any(axis=1)
-        self._scores = self.scores[keep_mask]
-        self._sample_assignments = self._sample_assignments[keep_mask]
-        self.n_variants = len(self._scores)
+            if self.use_fifth_sample and any([variant.is_missense and variant.is_snv for variant in variants]):
+                self._sample_assignments[idx, 4] = True
         self.sample_counts = self._sample_assignments.sum(axis=0)
-
-    def parse_population_type(self,**kwargs):
-        population_type = kwargs.get("population_type",'gnomAD')
-        valid_population_types = {'all_variants',
-                                  'all_nsSNV',
-                                  'all_missense_nsSNV',
-                                  'gnomAD',
-                                  'gnomAD_nsSNV',
-                                  'gnomAD_missense_nsSNV'}
-        if population_type not in valid_population_types:
-            raise ValueError(f"Invalid population type {population_type}; must be in {valid_population_types}")
-        self.population_type = population_type
-
-    def is_population_member(self,variant)->bool:
-        if self.population_type == "all_variants":
-            return True
-        if self.population_type == "all_nsSNV":
-            return variant.is_nsSNV
-        if self.population_type == "all_missense_nsSNV":
-            return variant.simplified_consequence == "missense_variant" and variant.is_nsSNV
-        if self.population_type == "gnomAD":
-            return variant.is_gnomAD
-        if self.population_type == "gnomAD_nsSNV":
-            return variant.is_gnomAD and variant.is_nsSNV
-        if self.population_type == "gnomAD_missense_nsSNV":
-            return variant.is_gnomAD and \
-                variant.is_nsSNV and \
-                variant.simplified_consequence == "missense_variant"
-        return False
-        
+        self._snv_scores = np.array(self._snv_scores)
 
     def get_variants_by_id(self):
         """
@@ -433,6 +376,14 @@ class Scoreset:
     @property
     def scores(self):
         return self._scores
+        
+    @property
+    def snv_scores(self):
+        return self._snv_scores
+        
+    @property
+    def aa_subs(self):
+        return self._aa_subs
 
     @property
     def scoreset_name(self):
@@ -447,97 +398,53 @@ class Scoreset:
 
 
 class Variant:
-    def __init__(self, variant_info: pd.Series, min_clinvar_star: int, clinvar_release: str):
-        self.min_clinvar_star = min_clinvar_star
-        self.clinvar_release = clinvar_release
+    def __init__(self, variant_info: pd.Series):
         self._init_variant_info(variant_info)
 
     def _init_variant_info(self, variant_info: pd.Series):
         self.ID = None
         self.simplified_consequence = None
         self.clinvar_star = None
+        self.clinvar_sig = None
         self.gnomad_MAF = None
         self.auth_reported_score = None
-        self.transcript_ref = ""
-        self.transcript_alt = ""
-        self.aa_ref = np.nan
-        self.aa_alt = ""
-        self.hgvs_p = ""
+        self.is_missense = None
+        self.is_snv = None
         for k, v in variant_info.items():
             setattr(self, str(k), v)
-        self.clinvar_sig = getattr(variant_info,f"clinvar_sig_{self.clinvar_release}")
-        self.clinvar_star = getattr(variant_info,f"clinvar_star_{self.clinvar_release}")
         self.parse_gnomAD_MAF()
         self.parse_clinvar_sig()
         self.parse_consequences()
-        self.assign_nsSNV()
-
-    def assign_nsSNV(self):
-        # is the variant a nonsynonymous nsSNV
-        self.is_nsSNV = (isinstance(self.transcript_ref,str) and len(self.transcript_ref) == 1) and \
-                        (isinstance(self.transcript_alt,str) and len(self.transcript_alt) == 1) and \
-                        (isinstance(self.hgvs_p,float) | \
-                         (self.aa_ref != self.aa_alt))
 
     def parse_consequences(self):
         self.is_synonymous = (self.simplified_consequence == "Synonymous") or (
             self.simplified_consequence == "synonymous_variant"
         )
+        self.is_missense = self.simplified_consequence == 'missense_variant'
+        self.is_snv = len(str(self.ref_allele)) == 1 and len(str(self.alt_allele)) == 1 and str(self.ref_allele) != str(self.alt_allele)
 
     def parse_clinvar_sig(self):
         self.is_conflicting = (
             self.clinvar_sig == "Conflicting classifications of pathogenicity"
         )
-        self.eval_quality()
-        
-        self.is_benign = self.sufficient_quality and self.clinvar_sig in {
+        high_quality = self.clinvar_star not in {
+            "no assertion criteria provided",
+            "no classification for the single variant",
+            "no classification provided",
+        }
+        self.is_benign = high_quality and self.clinvar_sig in {
             "Benign",
             "Likely benign",
             "Benign/Likely benign",
         }
-        self.is_pathogenic = self.sufficient_quality and self.clinvar_sig in {
+        self.is_pathogenic = high_quality and self.clinvar_sig in {
             "Pathogenic",
             "Likely pathogenic",
             "Pathogenic/Likely pathogenic",
         }
-        self.is_vus = self.sufficient_quality and self.clinvar_sig in {
+        self.is_vus = high_quality and self.clinvar_sig in {
             "Uncertain significance",
         }
-
-    def eval_quality(self):
-        one_star_status = {
-            'criteria provided, single submitter',
-            'criteria provided, conflicting interpretations',
-            'criteria provided, conflicting classifications',
-
-        }
-        two_star_statuses = {
-            'criteria provided, multiple submitters, no conflicts',
-
-        }
-        three_star_statuses = {
-            'reviewed by expert panel'
-        }
-        zero_star_statuses = {
-            np.nan,
-            'no assertion criteria provided',
-            'no assertion provided',
-            'no interpretation for the single variant',
-            'no classification provided',
-            '-'
-        }
-        if self.min_clinvar_star == 0:
-            self.sufficient_quality = True
-        elif self.min_clinvar_star == 1:
-            self.sufficient_quality = self.clinvar_star not in zero_star_statuses
-        elif self.min_clinvar_star == 2:
-            self.sufficient_quality = self.clinvar_star not in zero_star_statuses.union(one_star_status)
-        elif self.min_clinvar_star == 3:
-            self.sufficient_quality = self.clinvar_star not in zero_star_statuses.union(one_star_status).union(two_star_statuses)
-        elif self.min_clinvar_star == 4:
-            self.sufficient_quality = self.clinvar_star not in zero_star_statuses.union(one_star_status).union(two_star_statuses).union(three_star_statuses)
-        else:
-            raise ValueError(f"Invalid min_clinvar_star value {self.min_clinvar_star}")
 
     def parse_gnomAD_MAF(self):
         """
