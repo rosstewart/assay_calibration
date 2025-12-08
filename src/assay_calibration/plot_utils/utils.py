@@ -235,119 +235,6 @@ def plot_summary(scoreset: Scoreset, fits: List[Dict], summary:Dict, score_range
 
 
 # claude generated. do not want to deal with the matplotlib headache :)
-# def plot_scoreset_best_config(dataset, scoreset, indv_summary, fits, score_range, config, n_c, n_samples, relax=False):
-    # """
-    # Plot a single configuration with samples in one row, point assignments below, and LR+ below that.
-    
-    # Parameters:
-    # -----------
-    # dataset : str
-    #     Dataset name
-    # scoreset : Scoreset
-    #     The scoreset object
-    # indv_summary : dict
-    #     Summary dict for this specific (config, n_c) configuration
-    # fits : list
-    #     Fitted models
-    # score_range : np.ndarray
-    #     Score range for plotting
-    # config : tuple
-    #     Configuration tuple (e.g., ('avg',) or ('benign',))
-    # n_c : str
-    #     '2c' or '3c'
-    # n_samples : int
-    #     Number of samples in the scoreset
-    # """
-    
-    # # Create figure: 3 rows, n_samples columns (all square)
-    # fig, ax = plt.subplots(3, n_samples, figsize=(7*n_samples, 18), 
-    #                        squeeze=False, gridspec_kw={'hspace': 0.3, 'wspace': 0.3})
-
-    # relax_code = "R" if relax else ""
-    
-    # # ===== Row 0: Sample fits =====
-    # for sample_num in range(n_samples):
-    #     ax_fit = ax[0, sample_num]
-        
-    #     sns.histplot(scoreset.scores[scoreset.sample_assignments[:,sample_num]], 
-    #                  stat='density', ax=ax_fit, alpha=.5, color='pink')
-
-    #     max_hist_density = max([patch.get_height() for patch in ax_fit.patches])
-        
-    #     density = sample_density(score_range, fits, sample_num)
-    #     for compNum in range(density.shape[1]):
-    #         compDensity = density[:,compNum,:]
-    #         d = np.nanpercentile(compDensity,[5,50,95],axis=0)
-    #         ax_fit.plot(score_range, d[1], color=f"C{compNum}", linestyle='--', label=f"Comp {compNum+1}")
-    #     ax_fit.legend(fontsize=8)
-        
-    #     d = np.nansum(density, axis=1)
-    #     d_perc = np.percentile(d, [5,50,95], axis=0)
-    #     ax_fit.plot(score_range, d_perc[1], color='black', alpha=.5)
-    #     ax_fit.fill_between(score_range, d_perc[0], d_perc[2], color='gray', alpha=0.3)
-    #     ax_fit.set_title(f"{n_c}{relax_code}: {scoreset.sample_names[sample_num]}\n(n={scoreset.sample_assignments[:,sample_num].sum():,d})")
-    #     ax_fit.set_xlabel("Score")
-    #     ax_fit.set_ylabel("Density")
-    #     ax_fit.set_ylim([0, max_hist_density * 1.1])
-    #     ax_fit.grid(linewidth=0.5, alpha=0.3)
-    
-    # # Get x-limits from first fit
-    # xlim = ax[0, 0].get_xlim()
-    
-    # # ===== Row 1: Point assignments (one per sample) =====
-    # point_ranges = sorted([(int(k), v) for k,v in indv_summary['point_ranges'].items()])
-    # point_values = [pr[0] for pr in point_ranges]
-    
-    # for sample_num in range(n_samples):
-    #     ax_points = ax[1, sample_num]
-        
-    #     # Plot only this sample's point assignments
-    #     for pointIdx, (pointVal, scoreRanges) in enumerate(point_ranges):
-    #         for sr in scoreRanges:
-    #             ax_points.plot([sr[0], sr[1]], [pointIdx, pointIdx], 
-    #                          color='red' if pointVal > 0 else 'blue', 
-    #                          linestyle='-', alpha=0.7, linewidth=2)
-        
-    #     ax_points.set_ylim(-1, len(point_values))
-    #     ax_points.set_yticks(range(len(point_values)), 
-    #                        labels=list(map(lambda i: f"{i:+d}" if i!=0 else "0", point_values)))
-    #     ax_points.set_xlabel("Score")
-    #     ax_points.set_ylabel("Points")
-    #     ax_points.set_title(f"Point Assignments", fontsize=11)
-    #     ax_points.set_xlim(xlim)
-    #     ax_points.grid(linewidth=0.5, alpha=0.3)
-    
-    # # ===== Row 2: LR+ summaries (one per sample) =====
-    # point_values_all = sorted(list(set([abs(int(k)) for k in indv_summary['point_ranges'].keys()])))
-    # tauP, tauB, _ = list(map(np.log, thresholds_from_prior(indv_summary['prior'], point_values_all + [10])))
-    # priors = np.percentile(np.array(indv_summary['priors']),[5,50,95])
-    
-    # for sample_num in range(n_samples):
-    #     ax_lr = ax[2, sample_num]
-        
-    #     log_lr_plus = indv_summary['log_lr_plus']
-    #     llr_curves = np.nanpercentile(np.array(log_lr_plus),[5,50,95],axis=0)
-    #     labels = ['5th percentile','Median','95th percentile']
-        
-    #     for i, c in enumerate(['red','black','blue']):
-    #         if len(log_lr_plus) == 1 and i != 1:
-    #             continue # if no bootstraps only plot one curve
-    #         ax_lr.plot(score_range, llr_curves[i], color=c, label=labels[i] if len(log_lr_plus) != 1 else 'Single fit')
-        
-    #     ax_lr.set_title(f"Log LR+\nprior: {priors[1]:.3f}, C: {indv_summary['C']}", fontsize=11)
-    #     add_thresholds(tauP[:-1], tauB[:-1], ax_lr)
-    #     ax_lr.set_xlabel("Score")
-    #     ax_lr.set_ylabel("Log LR+")
-    #     ax_lr.legend(fontsize=8, loc='best')
-    #     ax_lr.set_xlim(xlim)
-    #     ax_lr.set_ylim([tauB[-1], tauP[-1]])  # Set y-limits based on ±10 thresholds
-    #     ax_lr.grid(linewidth=0.5, alpha=0.3)
-    
-    # plt.tight_layout()
-    # fig.suptitle(f"{dataset} - {n_c}{relax_code} {config}", fontsize=16, y=0.998)
-    
-    # return fig
-
 def plot_scoreset_best_config(dataset, scoreset, indv_summary, fits, score_range, config, n_c, n_samples, relax=False, flipped=False, debug=False):
     """
     Plot a single configuration with samples in one row, point assignments below, and LR+ below that.
@@ -454,6 +341,25 @@ def plot_scoreset_best_config(dataset, scoreset, indv_summary, fits, score_range
     tauP, tauB, _ = list(map(np.log, thresholds_from_prior(indv_summary['prior'], point_values_all + [10])))
     priors = np.percentile(np.array(indv_summary['priors']),[5,50,95])
     
+    # Identify which point values have insufficient evidence (empty ranges)
+    point_ranges_dict = {int(k): v for k, v in indv_summary['point_ranges'].items()}
+    pathogenic_points = [p for p in point_values_all if p > 0]
+    benign_points = [-p for p in point_values_all if p > 0]
+    
+    # Find highest pathogenic point with evidence
+    highest_pathogenic_with_evidence = None
+    for p in sorted(pathogenic_points, reverse=True):
+        if p in point_ranges_dict and len(point_ranges_dict[p]) > 0:
+            highest_pathogenic_with_evidence = p
+            break
+    
+    # Find lowest benign point with evidence (most negative)
+    lowest_benign_with_evidence = None
+    for p in sorted(benign_points):
+        if p in point_ranges_dict and len(point_ranges_dict[p]) > 0:
+            lowest_benign_with_evidence = p
+            break
+    
     for sample_num in range(n_samples):
         ax_lr = ax[2, sample_num]
         
@@ -467,6 +373,23 @@ def plot_scoreset_best_config(dataset, scoreset, indv_summary, fits, score_range
         max_5th_idx = np.nanargmax(lr_5th)
         max_5th = lr_5th[max_5th_idx]
         exceeds_pathogenic = any(max_5th > tau for tau in tauP[:-1])
+        
+        # Check if insufficient evidence causes cutoff
+        insufficient_evidence_pathogenic_idx = None
+        if highest_pathogenic_with_evidence is not None and highest_pathogenic_with_evidence < max(pathogenic_points):
+            # Find the threshold for the highest point with evidence
+            tau_idx = pathogenic_points.index(highest_pathogenic_with_evidence)
+            if tau_idx < len(pathogenic_points) - 1:
+                tau_cutoff = tauP[tau_idx+1]
+                # Find where curve crosses this threshold
+                if not flipped:
+                    crossing_indices = np.where(lr_5th >= tau_cutoff)[0]
+                    if len(crossing_indices) > 0:
+                        insufficient_evidence_pathogenic_idx = crossing_indices[-1]  # Last crossing
+                else:
+                    crossing_indices = np.where(lr_5th >= tau_cutoff)[0]
+                    if len(crossing_indices) > 0:
+                        insufficient_evidence_pathogenic_idx = crossing_indices[0]  # First crossing
         
         # Check if it comes back down after exceeding and find the crossing point
         should_plot_pathogenic_dotted = False
@@ -504,6 +427,23 @@ def plot_scoreset_best_config(dataset, scoreset, indv_summary, fits, score_range
         min_95th = lr_95th[min_95th_idx]
         exceeds_benign = any(min_95th < tau for tau in tauB[:-1])
         
+        # Check if insufficient evidence causes cutoff
+        insufficient_evidence_benign_idx = None
+        if lowest_benign_with_evidence is not None and lowest_benign_with_evidence > min(benign_points):
+            # Find the threshold for the lowest benign point with evidence
+            tau_idx = benign_points.index(lowest_benign_with_evidence)
+            if tau_idx < len(benign_points) - 1:
+                tau_cutoff = tauB[tau_idx+1]
+                # Find where curve crosses this threshold
+                if not flipped:
+                    crossing_indices = np.where(lr_95th <= tau_cutoff)[0]
+                    if len(crossing_indices) > 0:
+                        insufficient_evidence_benign_idx = crossing_indices[-1]  # Last crossing
+                else:
+                    crossing_indices = np.where(lr_95th <= tau_cutoff)[0]
+                    if len(crossing_indices) > 0:
+                        insufficient_evidence_benign_idx = crossing_indices[0]  # First crossing
+        
         # Check if it comes back up after going below and find the crossing point
         should_plot_benign_dotted = False
         benign_crossing_idx = None
@@ -537,6 +477,8 @@ def plot_scoreset_best_config(dataset, scoreset, indv_summary, fits, score_range
         # Debug output
         if debug:
             print(f"\nSample {sample_num}:")
+            print(f"  Highest pathogenic with evidence: {highest_pathogenic_with_evidence}, cutoff_idx: {insufficient_evidence_pathogenic_idx}")
+            print(f"  Lowest benign with evidence: {lowest_benign_with_evidence}, cutoff_idx: {insufficient_evidence_benign_idx}")
             print(f"  5th percentile: max={max_5th:.3f} at idx={max_5th_idx}, exceeds_pathogenic={exceeds_pathogenic}")
             if exceeds_pathogenic:
                 print(f"    highest_tau_exceeded={highest_tau_exceeded:.3f}, crossing_idx={pathogenic_crossing_idx}, should_plot_dotted={should_plot_pathogenic_dotted}")
@@ -554,45 +496,82 @@ def plot_scoreset_best_config(dataset, scoreset, indv_summary, fits, score_range
             
             curve = llr_curves[i]
             
-            # Handle 5th percentile (i=0) - exceeding pathogenic thresholds
-            if i == 0 and should_plot_pathogenic_dotted and pathogenic_crossing_idx is not None:
-                if debug:
-                    print(f"  Plotting 5th percentile with dotted line from crossing at idx {pathogenic_crossing_idx}")
-                if not flipped:
-                    # Normal: dotted before first crossing, solid after
-                    ax_lr.plot(score_range[:pathogenic_crossing_idx+1], curve[:pathogenic_crossing_idx+1], 
-                             color=c, linestyle=':', alpha=0.8, linewidth=2)
-                    ax_lr.plot(score_range[pathogenic_crossing_idx:], curve[pathogenic_crossing_idx:], 
-                             color=c, label=labels[i], linewidth=2)
+            # Handle 5th percentile (i=0)
+            if i == 0:
+                # Handle insufficient evidence
+                if insufficient_evidence_pathogenic_idx is not None:
+                    if debug:
+                        print(f"  Plotting 5th percentile with insufficient evidence cutoff at idx {insufficient_evidence_pathogenic_idx}")
+                    if not flipped:
+                        # Regular: dotted up to cutoff, solid after
+                        ax_lr.plot(score_range[:insufficient_evidence_pathogenic_idx+1], curve[:insufficient_evidence_pathogenic_idx+1], 
+                                 color=c, linestyle=':', alpha=0.8, linewidth=2)
+                        ax_lr.plot(score_range[insufficient_evidence_pathogenic_idx:], curve[insufficient_evidence_pathogenic_idx:], 
+                                 color=c, label=labels[i], linewidth=2)
+                    else:
+                        # Flipped: solid up to cutoff, dotted after
+                        ax_lr.plot(score_range[:insufficient_evidence_pathogenic_idx+1], curve[:insufficient_evidence_pathogenic_idx+1], 
+                                 color=c, label=labels[i], linewidth=2)
+                        ax_lr.plot(score_range[insufficient_evidence_pathogenic_idx:], curve[insufficient_evidence_pathogenic_idx:], 
+                                 color=c, linestyle=':', alpha=0.8, linewidth=2)
+                # Handle non-monotonic
+                elif should_plot_pathogenic_dotted and pathogenic_crossing_idx is not None:
+                    if debug:
+                        print(f"  Plotting 5th percentile with non-monotonic cutoff at idx {pathogenic_crossing_idx}")
+                    if not flipped:
+                        # Normal: dotted before crossing, solid after
+                        ax_lr.plot(score_range[:pathogenic_crossing_idx+1], curve[:pathogenic_crossing_idx+1], 
+                                 color=c, linestyle=':', alpha=0.8, linewidth=2)
+                        ax_lr.plot(score_range[pathogenic_crossing_idx:], curve[pathogenic_crossing_idx:], 
+                                 color=c, label=labels[i], linewidth=2)
+                    else:
+                        # Flipped: solid before crossing, dotted after
+                        ax_lr.plot(score_range[:pathogenic_crossing_idx+1], curve[:pathogenic_crossing_idx+1], 
+                                 color=c, label=labels[i], linewidth=2)
+                        ax_lr.plot(score_range[pathogenic_crossing_idx:], curve[pathogenic_crossing_idx:], 
+                                 color=c, linestyle=':', alpha=0.8, linewidth=2)
                 else:
-                    # Flipped: solid before second crossing, dotted after
-                    ax_lr.plot(score_range[:pathogenic_crossing_idx+1], curve[:pathogenic_crossing_idx+1], 
-                             color=c, label=labels[i], linewidth=2)
-                    ax_lr.plot(score_range[pathogenic_crossing_idx:], curve[pathogenic_crossing_idx:], 
-                             color=c, linestyle=':', alpha=0.8, linewidth=2)
+                    ax_lr.plot(score_range, curve, color=c, label=labels[i], linewidth=2)
             
-            # Handle 95th percentile (i=2) - going below benign thresholds
-            elif i == 2 and should_plot_benign_dotted and benign_crossing_idx is not None:
-                if debug:
-                    print(f"  Plotting 95th percentile with dotted line from crossing at idx {benign_crossing_idx}")
-                if not flipped:
-                    # Normal: solid before second crossing, dotted after
-                    ax_lr.plot(score_range[:benign_crossing_idx+1], curve[:benign_crossing_idx+1], 
-                             color=c, label=labels[i], linewidth=2)
-                    ax_lr.plot(score_range[benign_crossing_idx:], curve[benign_crossing_idx:], 
-                             color=c, linestyle=':', alpha=0.8, linewidth=2)
+            # Handle 95th percentile (i=2)
+            elif i == 2:
+                # Handle insufficient evidence
+                if insufficient_evidence_benign_idx is not None:
+                    if debug:
+                        print(f"  Plotting 95th percentile with insufficient evidence cutoff at idx {insufficient_evidence_benign_idx}")
+                    if not flipped:
+                        # Regular: solid up to cutoff, dotted after
+                        ax_lr.plot(score_range[:insufficient_evidence_benign_idx+1], curve[:insufficient_evidence_benign_idx+1], 
+                                 color=c, label=labels[i], linewidth=2)
+                        ax_lr.plot(score_range[insufficient_evidence_benign_idx:], curve[insufficient_evidence_benign_idx:], 
+                                 color=c, linestyle=':', alpha=0.8, linewidth=2)
+                    else:
+                        # Flipped: dotted up to cutoff, solid after
+                        ax_lr.plot(score_range[:insufficient_evidence_benign_idx+1], curve[:insufficient_evidence_benign_idx+1], 
+                                 color=c, linestyle=':', alpha=0.8, linewidth=2)
+                        ax_lr.plot(score_range[insufficient_evidence_benign_idx:], curve[insufficient_evidence_benign_idx:], 
+                                 color=c, label=labels[i], linewidth=2)
+                # Handle non-monotonic
+                elif should_plot_benign_dotted and benign_crossing_idx is not None:
+                    if debug:
+                        print(f"  Plotting 95th percentile with non-monotonic cutoff at idx {benign_crossing_idx}")
+                    if not flipped:
+                        # Normal: solid before crossing, dotted after
+                        ax_lr.plot(score_range[:benign_crossing_idx+1], curve[:benign_crossing_idx+1], 
+                                 color=c, label=labels[i], linewidth=2)
+                        ax_lr.plot(score_range[benign_crossing_idx:], curve[benign_crossing_idx:], 
+                                 color=c, linestyle=':', alpha=0.8, linewidth=2)
+                    else:
+                        # Flipped: dotted before crossing, solid after
+                        ax_lr.plot(score_range[:benign_crossing_idx+1], curve[:benign_crossing_idx+1], 
+                                 color=c, linestyle=':', alpha=0.8, linewidth=2)
+                        ax_lr.plot(score_range[benign_crossing_idx:], curve[benign_crossing_idx:], 
+                                 color=c, label=labels[i], linewidth=2)
+                # Plot normally for median (i=1)
                 else:
-                    # Flipped: dotted before first crossing, solid after
-                    ax_lr.plot(score_range[:benign_crossing_idx+1], curve[:benign_crossing_idx+1], 
-                             color=c, linestyle=':', alpha=0.8, linewidth=2)
-                    ax_lr.plot(score_range[benign_crossing_idx:], curve[benign_crossing_idx:], 
-                             color=c, label=labels[i], linewidth=2)
-            
-            # Plot normally for median (i=1) or when no threshold exceeded
-            else:
-                ax_lr.plot(score_range, curve, color=c, 
-                         label=labels[i] if len(log_lr_plus) != 1 else 'Single fit',
-                         linewidth=2)
+                    ax_lr.plot(score_range, curve, color=c, 
+                             label=labels[i] if len(log_lr_plus) != 1 else 'Single fit',
+                             linewidth=2)
             
         
         ax_lr.set_title(f"Log LR+\nprior: {priors[1]:.3f}, C: {indv_summary['C']}", fontsize=11)
@@ -1082,6 +1061,546 @@ def plot_confusion_mat(dataset, scoreset, indv_summary, fits, score_range, confi
               fontsize=14, fontweight='bold')
     plt.ylabel('ClinVar Classification', fontsize=12)
     plt.xlabel('Functional Category', fontsize=12)
+    plt.tight_layout()
+    
+    return fig
+
+def plot_scoreset_final_pillar_project(dataset, scoreset, indv_summary, fits, score_range, config, n_c, n_samples, relax=False, flipped=False, debug=False):
+    """
+    Combined plot with:
+    - All samples (P/LP, B/LB, gnomAD, Synonymous) overlayed in one histogram with fitted densities
+    - Vertical threshold lines
+    - Two calibration interval bars below (Scott et al. and Zeiberg et al.)
+    
+    Parameters: (same as original)
+    """
+    import matplotlib.pyplot as plt
+    import matplotlib.gridspec as gridspec
+    import matplotlib.lines as mlines
+    from matplotlib.patches import Patch
+    import seaborn as sns
+    import numpy as np
+    
+    # Sample colors matching the original plot
+    sample_colors = ['#CA7682', '#1D7AAB', '#A0A0A0', '#6BAA75']  # P/LP, B/LB, gnomAD, Synonymous
+    sample_alphas = [0.5, 0.5, 0.15, 0.4]  # gnomAD more transparent as background
+    
+    # Darker versions of sample colors for fitted density lines
+    fit_colors = ['#8B3A47', '#0D4A6B', '#505050', '#3A7A45']  # Darker versions
+    
+    # Threshold configuration
+    point_values_to_plot = [1, 2, 3, 4, 8]
+    linestyles = ['dotted', 'dashed', 'dashdot', (5, (10, 3)), (0, (3, 5, 1, 5))]
+    linewidths = [1.5, 1.5, 1.5, 1.5, 1.5]
+    
+    # Strength colors for calibration bars
+    strength_color = {
+        "BP4_Very Strong": "#4b91a6",
+        "BP4_Strong": "#7ab5d1",
+        "-3": "#99c8dc",
+        "BP4_Moderate": "#d0e8f0",
+        "BP4_Supporting": "#e4f1f6",
+        "IR": "#e0e0e0",
+        "PP3_Supporting": "#e6b1b8",
+        "PP3_Moderate": "#d68f99",
+        "+3": "#ca7682",
+        "PP3_Strong": "#b85c6b",
+        "PP3_Very Strong": "#943744"
+    }
+    
+    relax_code = "R" if relax else ""
+    
+    # Create figure with GridSpec
+    fig = plt.figure(figsize=(12, 10))
+    gs = gridspec.GridSpec(4, 1, height_ratios=[3, 0.6, 0.6, 0.4], hspace=0.35)
+    
+    ax_hist = plt.subplot(gs[0])   # Main histogram with all samples
+    ax_scott = plt.subplot(gs[1])  # Scott et al. calibration
+    ax_zeiberg = plt.subplot(gs[2])  # Zeiberg et al. calibration
+    leg_ax = plt.subplot(gs[3])    # Legend axis
+    leg_ax.axis('off')
+    
+    # Get score ranges for x-axis limits
+    all_scores = scoreset.snv_scores
+    x_min = score_range[0]
+    x_max = score_range[-1]
+    bin_width = (x_max - x_min) / 50
+    
+    # Get point ranges for threshold plotting
+    point_ranges = indv_summary['point_ranges']
+    
+    # Build legend handles for samples (histogram + fit)
+    sample_handles = []
+    
+    # Plot each sample's histogram and fitted density
+    for sample_num in range(n_samples):
+        sample_mask = scoreset.sample_assignments[:, sample_num]
+        sample_name = scoreset.sample_names[sample_num]
+        color = sample_colors[sample_num]
+        fit_color = fit_colors[sample_num]
+        alpha = sample_alphas[sample_num]
+        
+        # Plot histogram for this sample
+        sns.histplot(
+            scoreset.scores[sample_mask],
+            binwidth=bin_width,
+            stat='density',
+            ax=ax_hist,
+            alpha=alpha,
+            color=color,
+        )
+        
+        # Plot fitted density curve with darker color for visibility
+        density_sample = sample_density(score_range, fits, sample_num)
+        d = np.nansum(density_sample, axis=1)
+        d_perc = np.percentile(d, [5, 50, 95], axis=0)
+        
+        fit_alpha = 0.5 if sample_num == 2 else 1.0  # gnomAD fit more subtle
+        
+        # Darker median line
+        ax_hist.plot(
+            score_range, d_perc[1],
+            color=fit_color,
+            alpha=fit_alpha,
+            linewidth=2,
+            zorder=10
+        )
+        # Confidence band
+        ax_hist.fill_between(
+            score_range, d_perc[0], d_perc[2],
+            color=fit_color,
+            alpha=0.15 if sample_num == 2 else 0.2,
+            zorder=5
+        )
+        
+        # Create combined legend handle: patch for histogram + line for fit
+        hist_patch = Patch(facecolor=color, alpha=alpha, edgecolor='none')
+        fit_line = mlines.Line2D([], [], color=fit_color, linewidth=2, alpha=fit_alpha)
+        sample_handles.append((hist_patch, fit_line, f'{sample_name} (n={sample_mask.sum():,d})'))
+    
+    # Collect thresholds for calibration bars
+    threshold_scores_benign = []
+    threshold_scores_path = []
+    
+    # Add threshold vertical lines
+    for idx, point_val in enumerate(point_values_to_plot):
+        # Find benign threshold (negative point value)
+        for pv, score_ranges_pr in point_ranges.items():
+            if pv == -point_val:
+                for sr in score_ranges_pr:
+                    threshold_score = sr[0] if not flipped else sr[1]
+                    threshold_scores_benign.append(threshold_score)
+                    ax_hist.axvline(
+                        threshold_score,
+                        color='#2166AC',  # Darker blue
+                        linestyle=linestyles[idx],
+                        linewidth=linewidths[idx],
+                        alpha=0.8
+                    )
+                    break
+                break
+        
+        # Find pathogenic threshold (positive point value)
+        for pv, score_ranges_pr in point_ranges.items():
+            if pv == point_val:
+                for sr in score_ranges_pr:
+                    threshold_score = sr[1] if not flipped else sr[0]
+                    threshold_scores_path.append(threshold_score)
+                    ax_hist.axvline(
+                        threshold_score,
+                        color='#B2182B',  # Darker red
+                        linestyle=linestyles[idx],
+                        linewidth=linewidths[idx],
+                        alpha=0.8
+                    )
+                    break
+                break
+    
+    # Build threshold legend handles
+    threshold_handles = []
+    for idx, point_val in enumerate(point_values_to_plot):
+        if len(point_ranges.get(point_val, [])) != 0 or len(point_ranges.get(-point_val, [])) != 0:
+            h = mlines.Line2D(
+                [], [],
+                color='gray',
+                linestyle=linestyles[idx],
+                linewidth=linewidths[idx],
+                label=f"±{point_val}"
+            )
+            threshold_handles.append(h)
+    
+    # Configure main histogram axis
+    ax_hist.set_xlim(x_min, x_max)
+    ax_hist.set_xlabel('')
+    ax_hist.set_ylabel('Density', fontsize=12)
+    ax_hist.set_title(f'{dataset.split("_")[0]} Functional Score', fontsize=14, fontweight='bold')
+    ax_hist.tick_params(axis='both', labelsize=10)
+    
+    # Create sample legend (upper left) with histogram + fit distinction
+    from matplotlib.legend_handler import HandlerTuple
+    sample_legend_handles = [(h[0], h[1]) for h in sample_handles]
+    sample_legend_labels = [h[2] for h in sample_handles]
+    
+    legend1 = ax_hist.legend(
+        sample_legend_handles, 
+        sample_legend_labels,
+        handler_map={tuple: HandlerTuple(ndivide=None, pad=0.5)},
+        loc='upper left',
+        fontsize=10,
+    )
+    ax_hist.add_artist(legend1)
+    
+    # Create threshold legend (upper right)
+    legend2 = ax_hist.legend(
+        handles=threshold_handles,
+        loc='upper right',
+        fontsize=10,
+    )
+    
+    # Row 2: Scott et al. (2022) calibration
+    ax_scott.axvspan(x_min, 0, color=strength_color['BP4_Strong'], alpha=0.9)
+    ax_scott.axvspan(0, 0.4, color=strength_color['IR'], alpha=0.9)
+    ax_scott.axvspan(0.4, x_max, color=strength_color['PP3_Strong'], alpha=0.9)
+    
+    count_below_0 = (all_scores < 0).sum()
+    count_0_to_04 = ((all_scores >= 0) & (all_scores < 0.4)).sum()
+    count_above_04 = (all_scores >= 0.4).sum()
+    ax_scott.text((x_min + 0) / 2, 0.5, f'{count_below_0}', ha='center', va='center', color='black', fontsize=11)
+    ax_scott.text((0 + 0.4) / 2, 0.5, f'{count_0_to_04}', ha='center', va='center', color='black', fontsize=11)
+    ax_scott.text((0.4 + x_max) / 2, 0.5, f'{count_above_04}', ha='center', va='center', color='black', fontsize=11)
+    
+    ax_scott.set_xlim(x_min, x_max)
+    ax_scott.set_ylim(0, 1)
+    ax_scott.set_yticks([])
+    ax_scott.set_xticks([])
+    ax_scott.set_title('Scott et al. (2022)', loc='left', pad=3, fontsize=11, style='italic')
+    
+    # Row 3: Zeiberg et al. (2025) calibration with threshold intervals
+    threshold_scores_benign_sorted = sorted(threshold_scores_benign)
+    threshold_scores_path_sorted = sorted(threshold_scores_path)
+    
+    intervals = []
+    if len(threshold_scores_benign_sorted) >= 2 and len(threshold_scores_path_sorted) >= 3:
+        intervals.append(("BP4_Moderate", x_min, threshold_scores_benign_sorted[0]))
+        intervals.append(("BP4_Supporting", threshold_scores_benign_sorted[0], threshold_scores_benign_sorted[1]))
+        intervals.append(("IR", threshold_scores_benign_sorted[1], threshold_scores_path_sorted[0]))
+        intervals.append(("PP3_Supporting", threshold_scores_path_sorted[0], threshold_scores_path_sorted[1]))
+        intervals.append(("PP3_Moderate", threshold_scores_path_sorted[1], threshold_scores_path_sorted[2]))
+        intervals.append(("+3", threshold_scores_path_sorted[2], x_max))
+    
+    for name, start, end in intervals:
+        ax_zeiberg.axvspan(start, end, color=strength_color[name], alpha=0.9)
+        count = ((all_scores >= start) & (all_scores < end)).sum()
+        if (end - start) > 0.2:
+            ax_zeiberg.text(
+                (start + end) / 2, 0.5, str(count),
+                ha='center', va='center',
+                fontsize=11, color='black'
+            )
+    
+    ax_zeiberg.set_xlim(x_min, x_max)
+    ax_zeiberg.set_ylim(0, 1)
+    ax_zeiberg.set_yticks([])
+    ax_zeiberg.set_xlabel('Assay Score', fontsize=12)
+    ax_zeiberg.tick_params(axis='x', labelsize=10)
+    ax_zeiberg.set_title('Zeiberg et al. (2025)', loc='left', pad=3, fontsize=11, style='italic')
+    
+    # Legend for strength colors - ordered from benign to pathogenic
+    # Define the desired order
+    legend_order = ["BP4_Strong", "BP4_Moderate", "BP4_Supporting", "IR", "PP3_Supporting", "PP3_Moderate", "+3", "PP3_Strong"]
+    
+    # Collect all used strength names
+    used_strengths = {"BP4_Strong", "IR", "PP3_Strong"}  # Scott always uses these
+    for name, _, _ in intervals:
+        used_strengths.add(name)
+    
+    # Build legend in order
+    all_legend = [
+        Patch(facecolor=strength_color[name], label=name, edgecolor='none')
+        for name in legend_order
+        if name in used_strengths
+    ]
+    
+    leg_ax.legend(handles=all_legend, loc='upper center', ncol=len(all_legend), frameon=False, fontsize=9)
+    
+    plt.tight_layout()
+    
+    return fig
+
+
+def plot_scoreset_final_pillar_project_v2(dataset, scoreset, indv_summary, fits, score_range, config, n_c, n_samples, relax=False, flipped=False, debug=False):
+    """
+    Combined plot with:
+    - Top row: Individual sample fits (one per column) showing mixture components
+    - Second row: All samples overlayed in one histogram (no fits)
+    - Third row: Scott et al. calibration
+    - Fourth row: Zeiberg et al. calibration
+    - Bottom: Legend
+    
+    Parameters: (same as original)
+    """
+    import matplotlib.pyplot as plt
+    import matplotlib.gridspec as gridspec
+    import matplotlib.lines as mlines
+    from matplotlib.patches import Patch
+    import seaborn as sns
+    import numpy as np
+    
+    # Sample colors matching the original plot
+    sample_colors = ['#CA7682', '#1D7AAB', '#A0A0A0', '#6BAA75']  # P/LP, B/LB, gnomAD, Synonymous
+    sample_alphas = [0.5, 0.5, 0.15, 0.4]  # gnomAD more transparent as background
+    
+    # Component colors for fits (colorblind-friendly palette)
+    component_colors = plt.cm.Set2(np.linspace(0, 1, n_c))
+    
+    # Threshold configuration
+    point_values_to_plot = [1, 2, 3, 4, 8]
+    linestyles = ['dotted', 'dashed', 'dashdot', (5, (10, 3)), (0, (3, 5, 1, 5))]
+    linewidths = [1.25, 1.25, 1.25, 1.25, 1.25]
+    
+    # Strength colors for calibration bars
+    strength_color = {
+        "BP4_Very Strong": "#4b91a6",
+        "BP4_Strong": "#7ab5d1",
+        "-3": "#99c8dc",
+        "BP4_Moderate": "#d0e8f0",
+        "BP4_Supporting": "#e4f1f6",
+        "IR": "#e0e0e0",
+        "PP3_Supporting": "#e6b1b8",
+        "PP3_Moderate": "#d68f99",
+        "+3": "#ca7682",
+        "PP3_Strong": "#b85c6b",
+        "PP3_Very Strong": "#943744"
+    }
+    
+    # Create figure with GridSpec
+    fig = plt.figure(figsize=(18, 13.17460317))
+    gs = gridspec.GridSpec(5, n_samples, height_ratios=[2, 2, 1, 1, 0.3], hspace=0.3, wspace=0.15)
+    
+    # Top row: individual fit panels (one per sample)
+    ax_fits = [plt.subplot(gs[0, i]) for i in range(n_samples)]
+    
+    # Second row: combined histogram spanning all columns
+    ax_hist = plt.subplot(gs[1, :])
+    
+    # Third row: Scott et al. calibration
+    ax_scott = plt.subplot(gs[2, :])
+    
+    # Fourth row: Zeiberg et al. calibration
+    ax_zeiberg = plt.subplot(gs[3, :])
+    
+    # Bottom: Legend axis
+    leg_ax = plt.subplot(gs[4, :])
+    leg_ax.axis('off')
+    
+    # Add row title for top row
+    fig.text(0.5, 0.902, 'Model Fits', ha='center', va='top', fontsize=14, fontweight='bold')
+    
+    # Get score ranges for x-axis limits
+    all_scores = scoreset.snv_scores
+    x_min = score_range[0]
+    x_max = score_range[-1]
+    bin_width = (x_max - x_min) / 50
+    
+    # Get point ranges for threshold plotting
+    point_ranges = indv_summary['point_ranges']
+    
+    # Pre-compute thresholds for use in fit panels
+    threshold_scores_benign = []
+    threshold_scores_path = []
+    threshold_info = []  # Store (threshold_score, color, linestyle, linewidth) tuples
+    
+    for idx, point_val in enumerate(point_values_to_plot):
+        for pv, score_ranges_pr in point_ranges.items():
+            if pv == -point_val:
+                for sr in score_ranges_pr:
+                    threshold_score = sr[0] if not flipped else sr[1]
+                    threshold_scores_benign.append(threshold_score)
+                    threshold_info.append((threshold_score, '#2166AC', linestyles[idx], linewidths[idx]))
+                    break
+                break
+        
+        for pv, score_ranges_pr in point_ranges.items():
+            if pv == point_val:
+                for sr in score_ranges_pr:
+                    threshold_score = sr[1] if not flipped else sr[0]
+                    threshold_scores_path.append(threshold_score)
+                    threshold_info.append((threshold_score, '#B2182B', linestyles[idx], linewidths[idx]))
+                    break
+                break
+    
+    # ===== TOP ROW: Individual fits with components =====
+    for sample_num in range(n_samples):
+        ax = ax_fits[sample_num]
+        sample_mask = scoreset.sample_assignments[:, sample_num]
+        sample_name = scoreset.sample_names[sample_num]
+        color = sample_colors[sample_num]
+        alpha = sample_alphas[sample_num]
+        
+        hist_data = scoreset.scores[sample_mask]
+        n_count = sample_mask.sum()
+        
+        # Plot histogram for this sample - full visibility for all
+        sns.histplot(
+            hist_data,
+            binwidth=bin_width,
+            stat='density',
+            ax=ax,
+            alpha=0.4,
+            color=color,
+        )
+        
+        density_sample = sample_density(score_range, fits, sample_num)  # shape: (n_bootstraps, n_c, n_scores)
+        
+        # Plot sum of components (total fit) in black - solid line
+        d_total = np.nansum(density_sample, axis=1)  # shape: (n_bootstraps, n_scores)
+        d_total_perc = np.percentile(d_total, [5, 50, 95], axis=0)  # shape: (3, n_scores)
+
+        ax.fill_between(score_range, d_total_perc[0], d_total_perc[2], 
+                       color='gray', 
+                       alpha=0.3)
+        ax.plot(score_range, d_total_perc[1], 
+               color='black', 
+               alpha=0.65,
+               linewidth=2)
+        
+        ax.set_xlim(x_min, x_max)
+        ax.set_xlabel('')
+        ax.set_ylabel('Density' if sample_num == 0 else '', fontsize=12)
+        ax.tick_params(axis='both', labelsize=9)
+        
+        # Add threshold lines to fit panels
+        for thresh_score, thresh_color, thresh_ls, thresh_lw in threshold_info:
+            ax.axvline(
+                thresh_score,
+                color=thresh_color,
+                linestyle=thresh_ls,
+                linewidth=thresh_lw,
+                alpha=0.8
+            )
+        
+        # Create legend inside each panel with sample name and count
+        hist_patch = Patch(facecolor=color, alpha=0.4, edgecolor='none')
+        if sample_num == 2:  # gnomAD - add prior
+            legend_label = f'{sample_name}\n(n={n_count:,d}, prior={indv_summary["prior"]:.3f})'
+        else:
+            legend_label = f'{sample_name}\n(n={n_count:,d})'
+        
+        ax.legend([hist_patch], [legend_label], loc='upper right' if sample_num != 0 else 'upper left', fontsize=9, framealpha=0.9)
+    
+    # ===== SECOND ROW: Combined histogram =====
+    sample_handles = []
+    
+    for sample_num in range(n_samples):
+        sample_mask = scoreset.sample_assignments[:, sample_num]
+        sample_name = scoreset.sample_names[sample_num]
+        color = sample_colors[sample_num]
+        alpha = sample_alphas[sample_num]
+        
+        # For gnomAD (sample 2), use all SNV scores and rename to "All SNVs"
+        if sample_num == 2:
+            hist_data = all_scores
+            display_name = 'All SNVs'
+            n_count = len(all_scores)
+        else:
+            hist_data = scoreset.scores[sample_mask]
+            display_name = sample_name
+            n_count = sample_mask.sum()
+        
+        sns.histplot(
+            hist_data,
+            binwidth=bin_width,
+            stat='density',
+            ax=ax_hist,
+            alpha=alpha,
+            color=color,
+        )
+        
+        hist_patch = Patch(facecolor=color, alpha=alpha, edgecolor='none')
+        sample_handles.append((hist_patch, f'{display_name} (n={n_count:,d})'))
+    
+    ax_hist.set_xlim(x_min, x_max)
+    ax_hist.set_xlabel('')
+    ax_hist.set_ylabel('Density', fontsize=12)
+    ax_hist.set_title(f'{dataset.split("_")[0]} Functional Score', fontsize=14, fontweight='bold')
+    ax_hist.tick_params(axis='both', labelsize=10)
+    
+    # Sample legend (upper left)
+    sample_legend_handles = [h[0] for h in sample_handles]
+    sample_legend_labels = [h[1] for h in sample_handles]
+    
+    ax_hist.legend(
+        sample_legend_handles,
+        sample_legend_labels,
+        loc='upper left',
+        fontsize=10,
+    )
+    
+    # ===== THIRD ROW: Scott et al. calibration =====
+    ax_scott.axvspan(x_min, 0, color=strength_color['BP4_Strong'], alpha=0.9)
+    ax_scott.axvspan(0, 0.4, color=strength_color['IR'], alpha=0.9)
+    ax_scott.axvspan(0.4, x_max, color=strength_color['PP3_Strong'], alpha=0.9)
+    
+    count_below_0 = (all_scores < 0).sum()
+    count_0_to_04 = ((all_scores >= 0) & (all_scores < 0.4)).sum()
+    count_above_04 = (all_scores >= 0.4).sum()
+    ax_scott.text((x_min + 0) / 2, 0.5, f'{count_below_0}', ha='center', va='center', color='black', fontsize=11)
+    ax_scott.text((0 + 0.4) / 2, 0.5, f'{count_0_to_04}', ha='center', va='center', color='black', fontsize=11)
+    ax_scott.text((0.4 + x_max) / 2, 0.5, f'{count_above_04}', ha='center', va='center', color='black', fontsize=11)
+    
+    ax_scott.set_xlim(x_min, x_max)
+    ax_scott.set_ylim(0, 1)
+    ax_scott.set_yticks([])
+    ax_scott.set_ylabel('SNV Count', fontsize=12)
+    ax_scott.set_xticks([])
+    ax_scott.set_title('Scott et al. (2022)', loc='left', pad=3, fontsize=14, style='italic')
+    
+    # ===== FOURTH ROW: Zeiberg et al. calibration =====
+    threshold_scores_benign_sorted = sorted(threshold_scores_benign)
+    threshold_scores_path_sorted = sorted(threshold_scores_path)
+    
+    intervals = []
+    if len(threshold_scores_benign_sorted) >= 2 and len(threshold_scores_path_sorted) >= 3:
+        intervals.append(("BP4_Moderate", x_min, threshold_scores_benign_sorted[0]))
+        intervals.append(("BP4_Supporting", threshold_scores_benign_sorted[0], threshold_scores_benign_sorted[1]))
+        intervals.append(("IR", threshold_scores_benign_sorted[1], threshold_scores_path_sorted[0]))
+        intervals.append(("PP3_Supporting", threshold_scores_path_sorted[0], threshold_scores_path_sorted[1]))
+        intervals.append(("PP3_Moderate", threshold_scores_path_sorted[1], threshold_scores_path_sorted[2]))
+        intervals.append(("+3", threshold_scores_path_sorted[2], x_max))
+    
+    for name, start, end in intervals:
+        ax_zeiberg.axvspan(start, end, color=strength_color[name], alpha=0.9)
+        count = ((all_scores >= start) & (all_scores < end)).sum()
+        if (end - start) > 0.2:
+            ax_zeiberg.text(
+                (start + end) / 2, 0.5, str(count),
+                ha='center', va='center',
+                fontsize=11, color='black'
+            )
+    
+    ax_zeiberg.set_xlim(x_min, x_max)
+    ax_zeiberg.set_ylim(0, 1)
+    ax_zeiberg.set_ylabel('SNV Count', fontsize=12)
+    ax_zeiberg.set_yticks([])
+    ax_zeiberg.set_xlabel('Assay Score', fontsize=12)
+    ax_zeiberg.tick_params(axis='x', labelsize=10)
+    ax_zeiberg.set_title('Zeiberg et al. (2025)', loc='left', pad=3, fontsize=14, style='italic')
+    
+    # ===== BOTTOM: Strength legend =====
+    legend_order = ["BP4_Strong", "BP4_Moderate", "BP4_Supporting", "IR", "PP3_Supporting", "PP3_Moderate", "+3", "PP3_Strong"]
+    
+    used_strengths = {"BP4_Strong", "IR", "PP3_Strong"}
+    for name, _, _ in intervals:
+        used_strengths.add(name)
+    
+    all_legend = [
+        Patch(facecolor=strength_color[name], label=name, edgecolor='none')
+        for name in legend_order
+        if name in used_strengths
+    ]
+    
+    leg_ax.legend(handles=all_legend, loc='upper center', ncol=len(all_legend), frameon=False, fontsize=12)
+    
     plt.tight_layout()
     
     return fig

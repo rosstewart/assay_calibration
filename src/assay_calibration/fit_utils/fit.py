@@ -189,7 +189,7 @@ class Fit:
             init_methods = np.random.choice(["kmeans", "method_of_moments"], size=NUM_FITS)
 
         # adjust skew or scale during initial constraint adjustment
-        init_constraint_adjustment = kwargs.get("init_constraint_adjustment_param", "skew")
+        init_constraint_adjustment = kwargs.get("init_constraint_adjustment_param", "scale")
         if init_constraint_adjustment != 'random':
             init_constraint_adjustments = np.full(NUM_FITS, init_constraint_adjustment) 
         else:
