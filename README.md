@@ -1,6 +1,6 @@
 # Assay Calibration Pipeline
 
-A production-ready pipeline for calibrating deep mutational scanning (DMS) assays using bootstrap mixture model fitting and Bayesian calibration.
+A production-ready pipeline for calibrating functional assays using bootstrap skew normal mixture model fitting and Bayesian calibration.
 
 ## Overview
 
