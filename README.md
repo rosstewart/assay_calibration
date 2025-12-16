@@ -33,7 +33,7 @@ pip install -e .
 # Run calibration with default settings (2c and 3c models, parallel execution)
 python run_pipeline.py \
   --dataset example/MSH2_Jia_2021.csv \
-  --name MyAssay
+  --name MSH2_Jia_2021
 
 # This will:
 # 1. Fit 1000 bootstrap iterations with 100 fits each
@@ -79,16 +79,21 @@ python run_pipeline.py \
 For large-scale runs on HPC clusters:
 
 ```bash
-# Generate SLURM job array
+# Generate SLURM job array (customize for your cluster environment)
 python run_pipeline.py \
   --dataset example/MSH2_Jia_2021.csv \
   --name MSH2_Jia_2021 \
   --mode slurm \
   --slurm-account my_account \
   --slurm-partition short \
-  --slurm-time 23:59:00
+  --slurm-time 12 \
+  --slurm-conda-env my_conda_env \
+  --slurm-modules "module load anaconda3/2024.06"
 
 # This creates job files in ./calibration_output/slurm_jobs/
+# Review the generated submit.sh script and customize if needed:
+nano ./calibration_output/slurm_jobs/submit.sh
+
 # Then submit:
 cd ./calibration_output/slurm_jobs
 sbatch submit.sh
