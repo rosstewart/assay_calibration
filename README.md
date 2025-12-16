@@ -25,15 +25,6 @@ pip install -r requirements.txt
 pip install -e .
 ```
 
-### Requirements
-
-- Python 3.8+
-- numpy, scipy, pandas
-- scikit-learn
-- matplotlib, seaborn
-- joblib
-- (Optional) SLURM cluster access for large-scale runs
-
 ## Quick Start
 
 ### Basic Usage
