@@ -1,0 +1,66 @@
+"""
+Configuration for Assay Calibration Pipeline
+"""
+from dataclasses import dataclass
+from typing import List, Literal
+
+@dataclass
+class PipelineConfig:
+    """Main configuration for the calibration pipeline"""
+    
+    # Input/Output
+    dataset_csv: str
+    dataset_name: str
+    output_dir: str = "./calibration_output"
+    
+    # Bootstrap parameters
+    n_bootstraps: int = 1000
+    num_fits_per_bootstrap: int = 100
+    
+    # Model parameters
+    components: List[int] = None  # [2], [3], or [2, 3]
+    use_median_prior: bool = True
+    use_2c_equation: bool = False  # Use EM estimation instead
+    liberal_monotonicity: bool = True
+    benign_method: Literal["benign", "avg", "synonymous"] = "avg"
+    
+    # Execution parameters
+    execution_mode: Literal["slurm", "parallel", "single"] = "parallel"
+    n_jobs: int = -1  # -1 uses all available CPUs
+    
+    # SLURM parameters (only used if execution_mode="slurm")
+    slurm_account: str = "default"
+    slurm_partition: str = "short"
+    slurm_time_hours: int = 23
+    slurm_mem_gb: int = 1
+    slurm_cpus_per_task: int = 12
+    slurm_conda_env: str = "assay_calibration"
+    slurm_module_commands: List[str] = None
+    
+    # Model selection (only used if components=[2,3])
+    auto_select_model: bool = True
+    model_selection_alpha: float = 0.05
+    use_conservative_selection: bool = True  # Use 5th percentile test
+    
+    # Output options
+    save_bootstrap_fits: bool = False
+    save_visualizations: bool = True
+    point_values: List[int] = None
+    
+    # ClinVar parameters
+    clinvar_release: str = "2025"
+    min_clinvar_star: int = 1
+    
+    def __post_init__(self):
+        if self.components is None:
+            self.components = [2, 3]
+        if self.point_values is None:
+            self.point_values = [1, 2, 3, 4, 5, 6, 7, 8]
+        
+        # Validate components
+        if not all(c in [2, 3, 4] for c in self.components):
+            raise ValueError("Components must be 2, 3, or 4")
+        
+        # If using SLURM, adjust job count
+        if self.execution_mode == "slurm" and self.n_jobs == -1:
+            self.n_jobs = 30  # Reasonable default for job generation

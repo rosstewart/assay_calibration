@@ -13,6 +13,7 @@ from ..fit_utils.two_sample import density_utils  # noqa: E402
 from ..data_utils.dataset import Scoreset  # noqa: E402
 from ..fit_utils.utils import serialize_dict  # noqa: E402
 import matplotlib.gridspec as gridspec
+import pandas as pd
 
 def plot_scoreset(scoreset:Scoreset, summary: Dict, scoreset_fits: List[Dict], score_range, use_median_prior,use_2c_equation, n_c, benign_method, C):
     fig, ax = plt.subplots(2,scoreset.n_samples, figsize=(5*scoreset.n_samples,10),sharex=True,sharey=False)
@@ -101,18 +102,23 @@ def plot_scoreset_compare_point_assignments(dataset, scoresets, summary, scorese
             ax[row_lr, col_idx].axis('off')
         
         # ===== Fits/points row: Plot fits =====
-        for sample_num in range(n_samples_st):
-            ax_fit = ax[row_fits, sample_num]
+        num_skipped = 0
+        for sample_num in range(len(scoreset.sample_counts)):
+            if scoreset.sample_counts[sample_num] == 0:
+                num_skipped += 1
+                continue
+            ax_fit = ax[row_fits, sample_num-num_skipped]
             
+            # print(scoreset.sample_names)
             # Plot histogram
-            hist_data = sns.histplot(scoreset.scores[scoreset.sample_assignments[:,sample_num]], 
+            hist_data = sns.histplot(scoreset.scores[scoreset.sample_assignments[:,sample_num-num_skipped]], 
                                      stat='density', ax=ax_fit, alpha=.5, color='pink')
             
             # Get maximum density from histogram patches
             max_hist_density = max([patch.get_height() for patch in ax_fit.patches])
             
             # Plot fitted densities
-            density = sample_density(score_range, scoreset_fits[sd['fits_key']], sample_num)
+            density = sample_density(score_range, scoreset_fits[sd['fits_key']], sample_num-num_skipped)
             for compNum in range(density.shape[1]):
                 compDensity = density[:,compNum,:]
                 d = np.nanpercentile(compDensity,[5,50,95],axis=0)
@@ -123,7 +129,7 @@ def plot_scoreset_compare_point_assignments(dataset, scoresets, summary, scorese
             d_perc = np.percentile(d, [5,50,95], axis=0)
             ax_fit.plot(score_range, d_perc[1], color='black', alpha=.5)
             ax_fit.fill_between(score_range, d_perc[0], d_perc[2], color='gray', alpha=0.3)
-            ax_fit.set_title(f"{st}: {scoreset.sample_names[sample_num]}\n(n={scoreset.sample_assignments[:,sample_num].sum():,d})")
+            ax_fit.set_title(f"{st}: {scoreset.sample_names[sample_num]}\n(n={scoreset.sample_assignments[:,sample_num-num_skipped].sum():,d})")
             ax_fit.set_xlabel("Score")
             ax_fit.set_ylabel("Density")
             ax_fit.set_ylim([0, max_hist_density * 1.1])
@@ -271,11 +277,15 @@ def plot_scoreset_best_config(dataset, scoreset, indv_summary, fits, score_range
     relax_code = "R" if relax else ""
     
     # ===== Row 0: Sample fits =====
-    for sample_num in range(n_samples):
-        ax_fit = ax[0, sample_num]
+    num_skipped = 0
+    for sample_num in range(len(scoreset.sample_counts)):
+        if scoreset.sample_counts[sample_num] == 0:
+            num_skipped += 1
+            continue
+        ax_fit = ax[0, sample_num-num_skipped]
         
         # Get sample mask
-        sample_mask = scoreset.sample_assignments[:,sample_num]
+        sample_mask = scoreset.sample_assignments[:,sample_num-num_skipped]
         
         # Plot based on sample number (which category)
         if sample_num == 0:  # P/LP
@@ -293,7 +303,7 @@ def plot_scoreset_best_config(dataset, scoreset, indv_summary, fits, score_range
     
         max_hist_density = max([patch.get_height() for patch in ax_fit.patches]) if ax_fit.patches else 1.0
         
-        density = sample_density(score_range, fits, sample_num)
+        density = sample_density(score_range, fits, sample_num-num_skipped)
         for compNum in range(density.shape[1]):
             compDensity = density[:,compNum,:]
             d = np.nanpercentile(compDensity,[5,50,95],axis=0)
@@ -304,7 +314,7 @@ def plot_scoreset_best_config(dataset, scoreset, indv_summary, fits, score_range
         d_perc = np.percentile(d, [5,50,95], axis=0)
         ax_fit.plot(score_range, d_perc[1], color='black', alpha=.5)
         ax_fit.fill_between(score_range, d_perc[0], d_perc[2], color='gray', alpha=0.3)
-        ax_fit.set_title(f"{n_c}{relax_code}: {scoreset.sample_names[sample_num].replace('population','gnomAD')}\n(n={scoreset.sample_assignments[:,sample_num].sum():,d})")
+        ax_fit.set_title(f"{n_c}{relax_code}: {scoreset.sample_names[sample_num].replace('population','gnomAD')}\n(n={scoreset.sample_assignments[:,sample_num-num_skipped].sum():,d})")
         ax_fit.set_xlabel("Score")
         ax_fit.set_ylabel("Density")
         ax_fit.set_ylim([0, max_hist_density * 1.1])
@@ -584,6 +594,9 @@ def plot_scoreset_best_config(dataset, scoreset, indv_summary, fits, score_range
         ax_lr.grid(linewidth=0.5, alpha=0.3)
     
     plt.tight_layout()
+    if scoreset.sample_counts[1] == 0 and scoreset.sample_counts[3] != 0:
+        config = str(config).replace("(benign)","(synonymous)")
+        
     fig.suptitle(f"{dataset} - {n_c}{relax_code} {config}", fontsize=16, y=0.998)
     
     return fig
@@ -730,6 +743,8 @@ def plot_scoreset_example_publication(dataset, scoreset, indv_summary, fits, sco
                 )
                 handles.append(h)
 
+        if sample_name == "population":
+            sample_name = "gnomAD"
         if sample_name != "gnomAD":
             ax.set_title(f"{sample_name} (n={sample_mask.sum():,d})", fontsize=16, fontweight='bold')
         else:
@@ -756,17 +771,17 @@ def plot_scoreset_calibration_comparison(dataset, scoreset, indv_summary, fits, 
     
     # Strength colors for calibration bars
     strenth_color = {
-        "BP4_Very Strong": "#4b91a6",
-        "BP4_Strong": "#7ab5d1",
+        "BS3 Very Strong": "#4b91a6",
+        "BS3 Strong": "#7ab5d1",
         "-3": "#99c8dc",
-        "BP4_Moderate": "#d0e8f0",
-        "BP4_Supporting": "#e4f1f6",
+        "BS3 Moderate": "#d0e8f0",
+        "BS3 Supporting": "#e4f1f6",
         "IR": "#e0e0e0",
-        "PP3_Supporting": "#e6b1b8",
-        "PP3_Moderate": "#d68f99",
+        "PS3 Supporting": "#e6b1b8",
+        "PS3 Moderate": "#d68f99",
         "+3": "#ca7682",
-        "PP3_Strong": "#b85c6b",
-        "PP3_Very Strong": "#943744"
+        "PS3 Strong": "#b85c6b",
+        "PS3 Very Strong": "#943744"
     }
     
     relax_code = "R" if relax else ""
@@ -866,9 +881,9 @@ def plot_scoreset_calibration_comparison(dataset, scoreset, indv_summary, fits, 
     ax1.set_title(f'MSH2 Functional Score', fontsize=22, fontweight='bold')
     
     # Row 2: Scott
-    ax2.axvspan(x_min, 0, color=strenth_color['BP4_Strong'], alpha=0.9)
+    ax2.axvspan(x_min, 0, color=strenth_color['BS3 Strong'], alpha=0.9)
     ax2.axvspan(0, 0.4, color=strenth_color['IR'], alpha=0.9)
-    ax2.axvspan(0.4, x_max, color=strenth_color['PP3_Strong'], alpha=0.9)
+    ax2.axvspan(0.4, x_max, color=strenth_color['PS3 Strong'], alpha=0.9)
     
     count_below_0 = (all_scores < 0).sum()
     count_above_0 = (all_scores > 0.4).sum()
@@ -892,8 +907,8 @@ def plot_scoreset_calibration_comparison(dataset, scoreset, indv_summary, fits, 
     
     # Benign intervals
     # if len(threshold_scores_benign_sorted) >= 3:
-    intervals.append(("BP4_Moderate", x_min, threshold_scores_benign_sorted[0]))  # -3 and below
-    intervals.append(("BP4_Supporting", threshold_scores_benign_sorted[0], threshold_scores_benign_sorted[1]))  # -2
+    intervals.append(("BS3 Moderate", x_min, threshold_scores_benign_sorted[0]))  # -3 and below
+    intervals.append(("BS3 Supporting", threshold_scores_benign_sorted[0], threshold_scores_benign_sorted[1]))  # -2
 
     # print(threshold_scores_benign_sorted)
     # print(threshold_scores_path_sorted)
@@ -904,8 +919,8 @@ def plot_scoreset_calibration_comparison(dataset, scoreset, indv_summary, fits, 
     
     # Pathogenic intervals
     # if len(threshold_scores_path_sorted) >= 3:
-    intervals.append(("PP3_Supporting", threshold_scores_path_sorted[0], threshold_scores_path_sorted[1]))  # +1
-    intervals.append(("PP3_Moderate", threshold_scores_path_sorted[1], threshold_scores_path_sorted[2]))  # +2
+    intervals.append(("PS3 Supporting", threshold_scores_path_sorted[0], threshold_scores_path_sorted[1]))  # +1
+    intervals.append(("PS3 Moderate", threshold_scores_path_sorted[1], threshold_scores_path_sorted[2]))  # +2
     intervals.append(("+3", threshold_scores_path_sorted[2], x_max))  # +3 and above
     
     for name, start, end in intervals:
@@ -929,10 +944,10 @@ def plot_scoreset_calibration_comparison(dataset, scoreset, indv_summary, fits, 
     # Legend for strength colors
     from matplotlib.patches import Patch
     legend_elements = [Patch(facecolor=strenth_color[name], label=name) for name in [
-        "BP4_Moderate", "BP4_Supporting", "IR", 
-        "PP3_Supporting", "PP3_Moderate", "+3"
-        # "BP4_Very Strong", "BP4_Strong", "-3", "BP4_Moderate", "BP4_Supporting", "IR", 
-        # "PP3_Supporting", "PP3_Moderate", "+3", "PP3_Strong", "PP3_Very Strong"
+        "BS3 Moderate", "BS3 Supporting", "IR", 
+        "PS3 Supporting", "PS3 Moderate", "+3"
+        # "BS3 Very Strong", "BS3 Strong", "-3", "BS3 Moderate", "BS3 Supporting", "IR", 
+        # "PS3 Supporting", "PS3 Moderate", "+3", "PS3 Strong", "PS3 Very Strong"
     ]]
     leg_ax.legend(handles=legend_elements, loc='center', ncol=6, frameon=False, fontsize=12)
     
@@ -941,21 +956,27 @@ def plot_scoreset_calibration_comparison(dataset, scoreset, indv_summary, fits, 
     
     return fig
 
-import matplotlib
-import pandas as pd
-def plot_confusion_mat(dataset, scoreset, indv_summary, fits, score_range, config, n_c, n_samples, relax=False, flipped=False, debug=False):
+
+def calculate_confusion_mat(dataset, scoreset, indv_summary, fits, score_range, config, n_c, n_samples, relax=False, flipped=False, debug=False, verbose=False):
     """
-    Plot confusion matrix comparing DanZ calibration vs Jia 2021 (0-cutoff).
+    Plot confusion matrix comparing DanZ calibration vs Author.
     Shows how P/LP and B/LB variants are classified into Benign/IR/Pathogenic ranges.
     """
+
+
+    if pd.isna(scoreset.auth_labels).all():
+        print(f"{dataset}: all auth labels are nan")
+        return None, None
     
     # Get point ranges
     point_ranges = indv_summary['point_ranges']
     
     # Assume first two samples are P/LP and B/LB
     plp_scores = scoreset.scores[scoreset.sample_assignments[:, 0]]
-    blb_scores = scoreset.scores[scoreset.sample_assignments[:, 1]]
-    
+    plp_auth_labels = scoreset.auth_labels[scoreset.sample_assignments[:, 0]]
+    blb_scores = scoreset.scores[scoreset.sample_assignments[:, 1]] 
+    blb_auth_labels = scoreset.auth_labels[scoreset.sample_assignments[:, 1]] 
+
     # Determine benign, IR, and pathogenic score ranges for DanZ
     benign_ranges = []
     ir_ranges = []
@@ -995,74 +1016,125 @@ def plot_confusion_mat(dataset, scoreset, indv_summary, fits, score_range, confi
         'PLP': [plp_in_benign, plp_in_ir, plp_in_path]
     }).T
 
-    
+    indeterminate_codes = ["NOT SPECIFIED", "INDETERMINATE", "IGNORE"]
+
     # Count for Jia 2021 (0-cutoff)
-    blb_below_0 = (blb_scores < 0).sum()
-    blb_above_0 = (blb_scores > 0).sum()
-    plp_below_0 = (plp_scores < 0).sum()
-    plp_above_0 = (plp_scores > 0).sum()
+    blb_abnorm = (blb_auth_labels == "ABNORMAL").sum()
+    blb_ir = (np.isin(blb_auth_labels, indeterminate_codes) | pd.isna(blb_auth_labels)).sum()
+    blb_norm = (blb_auth_labels == "NORMAL").sum()
+    plp_abnorm = (plp_auth_labels == "ABNORMAL").sum()
+    plp_ir = (np.isin(plp_auth_labels, indeterminate_codes) | pd.isna(plp_auth_labels)).sum()
+    plp_norm = (plp_auth_labels == "NORMAL").sum()
     
     # Create Jia 2021 DataFrame
     auth = pd.DataFrame({
-        'BLB': [blb_below_0, 0, blb_above_0],
-        'PLP': [plp_below_0, 0, plp_above_0]
+        'BLB': [blb_norm, blb_ir, blb_abnorm],
+        'PLP': [plp_norm, plp_ir, plp_abnorm]
     }).T
-    
+        
     ind = ['Normal', 'IR', 'Abnormal']
     danz.columns = ind
     auth.columns = ind
+
+    if verbose:
+        print(dataset)
+        print('danz',danz)
+        print('auth',auth)
+
+    return danz, auth
+
+def plot_confusion_mat(danzs, auths):
+    """
+    danzs: list of DanZ count DataFrames
+    auths: list of author count DataFrames
+    """
+    # ----------------------------------------------
+    # 0. Filter out datasets with zero row sums
+    # ----------------------------------------------
+    valid_indices = []
+    for i in range(len(danzs)):
+        danz_row_sums = danzs[i].sum(axis=1)
+        auth_row_sums = auths[i].sum(axis=1)
+        
+        if (danz_row_sums == 0).any() or (auth_row_sums == 0).any():
+            print(f"Skipping dataset index {i}: has zero row sum")
+            continue
+        
+        valid_indices.append(i)
     
-    print(danz)
-    print(auth)
+    # Filter to valid datasets only
+    danzs_filtered = [danzs[i] for i in valid_indices]
+    auths_filtered = [auths[i] for i in valid_indices]
     
-    if debug:
-        print("DanZ counts:")
-        print(danz)
-        print("\nJia 2021 counts:")
-        print(auth)
+    if len(danzs_filtered) == 0:
+        raise ValueError("No valid datasets remaining after filtering!")
     
-    # Calculate row-wise percentages
-    danz_percent = danz.div(danz.sum(axis=1), axis=0) * 100
-    auth_percent = auth.div(auth.sum(axis=1), axis=0) * 100
-    difference = (danz_percent - auth_percent)
+    print(f"Using {len(danzs_filtered)}/{len(danzs)} datasets")
     
-    # Create custom colormap
+    # ----------------------------------------------
+    # 1. Compute weighted average of row percentages
+    # ----------------------------------------------
+    
+    # initialize accumulators
+    danz_weighted = danzs_filtered[0].copy() * 0
+    auth_weighted = auths_filtered[0].copy() * 0
+    danz_weights = danzs_filtered[0].sum(axis=1) * 0
+    auth_weights = auths_filtered[0].sum(axis=1) * 0
+    
+    for D in danzs_filtered:
+        row_sums = D.sum(axis=1)
+        percent = D.div(row_sums, axis=0) * 100
+        danz_weighted += percent.mul(row_sums, axis=0)
+        danz_weights += row_sums
+    
+    for A in auths_filtered:
+        row_sums = A.sum(axis=1)
+        percent = A.div(row_sums, axis=0) * 100
+        auth_weighted += percent.mul(row_sums, axis=0)
+        auth_weights += row_sums
+    
+    # Final weighted averages
+    danz_percent = danz_weighted.div(danz_weights, axis=0)
+    auth_percent = auth_weighted.div(auth_weights, axis=0)
+    
+    # ----------------------------------------------
+    # 2. Compute difference
+    # ----------------------------------------------
+    difference = danz_percent - auth_percent
+    
+    # ----------------------------------------------
+    # 3. Plot
+    # ----------------------------------------------
     from matplotlib.colors import LinearSegmentedColormap, BoundaryNorm
     colors = ["gold", "whitesmoke", "purple"]
     cmap_custom = LinearSegmentedColormap.from_list("PurpleYellow", colors)
-    max_abs_value = 10  # Maximum absolute value for scale
-    step = 1            # Step size between bounds
-    
+    max_abs_value = 10
+    step = 1
     posbounds = np.arange(0, max_abs_value + step, step)
     negbounds = -np.arange(step, max_abs_value + step, step)[::-1]
     bounds = np.concatenate([negbounds, posbounds])
     norm = BoundaryNorm(bounds, cmap_custom.N)
     
     def format_diff_value(x):
-        if abs(x) < 0.1:  # Only show differences ≥ 0.1%
+        if pd.isna(x):
+            return ""
+        if abs(x) < 0.1:
             return f"{x:+.2f}%"
         return f"{x:+.1f}%"
     
-    format_array = np.vectorize(format_diff_value)
-    annot_data = format_array(difference)
-    
-    # Create heatmap
+    annot_data = np.vectorize(format_diff_value)(difference)
     fig = plt.figure(figsize=(10, 3))
-    sns.heatmap(difference, 
-                annot=annot_data, fmt='',
-                cmap=cmap_custom, 
-                norm=norm,
-                cbar_kws={'label': 'Percentage Point Difference', 'pad': 0.01},
-                linewidths=0.5,
-                linecolor='gray')
-    
-    relax_code = "R" if relax else ""
-    plt.title(f'{dataset.split("_")[0]}: Zeiberg et al. (2025) vs. Author Difference', 
+    sns.heatmap(
+        difference, annot=annot_data, fmt='',
+        cmap=cmap_custom, norm=norm,
+        cbar_kws={'label': 'Percentage Point Difference', 'pad': 0.01},
+        linewidths=0.5, linecolor='gray'
+    )
+    plt.title('Zeiberg et al. (2025) vs. Author Difference',
               fontsize=14, fontweight='bold')
-    plt.ylabel('ClinVar Classification', fontsize=12)
-    plt.xlabel('Functional Category', fontsize=12)
+    plt.ylabel('ClinVar Classification')
+    plt.xlabel('Functional Category')
     plt.tight_layout()
-    
     return fig
 
 def plot_scoreset_final_pillar_project(dataset, scoreset, indv_summary, fits, score_range, config, n_c, n_samples, relax=False, flipped=False, debug=False):
@@ -1095,17 +1167,17 @@ def plot_scoreset_final_pillar_project(dataset, scoreset, indv_summary, fits, sc
     
     # Strength colors for calibration bars
     strength_color = {
-        "BP4_Very Strong": "#4b91a6",
-        "BP4_Strong": "#7ab5d1",
+        "BS3 Very Strong": "#4b91a6",
+        "BS3 Strong": "#7ab5d1",
         "-3": "#99c8dc",
-        "BP4_Moderate": "#d0e8f0",
-        "BP4_Supporting": "#e4f1f6",
+        "BS3 Moderate": "#d0e8f0",
+        "BS3 Supporting": "#e4f1f6",
         "IR": "#e0e0e0",
-        "PP3_Supporting": "#e6b1b8",
-        "PP3_Moderate": "#d68f99",
+        "PS3 Supporting": "#e6b1b8",
+        "PS3 Moderate": "#d68f99",
         "+3": "#ca7682",
-        "PP3_Strong": "#b85c6b",
-        "PP3_Very Strong": "#943744"
+        "PS3 Strong": "#b85c6b",
+        "PS3 Very Strong": "#943744"
     }
     
     relax_code = "R" if relax else ""
@@ -1233,7 +1305,7 @@ def plot_scoreset_final_pillar_project(dataset, scoreset, indv_summary, fits, sc
     ax_hist.set_xlim(x_min, x_max)
     ax_hist.set_xlabel('')
     ax_hist.set_ylabel('Density', fontsize=12)
-    ax_hist.set_title(f'{dataset.split("_")[0]} Functional Score', fontsize=14, fontweight='bold')
+    ax_hist.set_title(f'{dataset.split("_")[0]} Functional Score (2018 ClinVar)', fontsize=14, fontweight='bold')
     ax_hist.tick_params(axis='both', labelsize=10)
     
     # Create sample legend (upper left) with histogram + fit distinction
@@ -1258,9 +1330,9 @@ def plot_scoreset_final_pillar_project(dataset, scoreset, indv_summary, fits, sc
     )
     
     # Row 2: Scott et al. (2022) calibration
-    ax_scott.axvspan(x_min, 0, color=strength_color['BP4_Strong'], alpha=0.9)
+    ax_scott.axvspan(x_min, 0, color=strength_color['BS3 Strong'], alpha=0.9)
     ax_scott.axvspan(0, 0.4, color=strength_color['IR'], alpha=0.9)
-    ax_scott.axvspan(0.4, x_max, color=strength_color['PP3_Strong'], alpha=0.9)
+    ax_scott.axvspan(0.4, x_max, color=strength_color['PS3 Strong'], alpha=0.9)
     
     count_below_0 = (all_scores < 0).sum()
     count_0_to_04 = ((all_scores >= 0) & (all_scores < 0.4)).sum()
@@ -1279,14 +1351,22 @@ def plot_scoreset_final_pillar_project(dataset, scoreset, indv_summary, fits, sc
     threshold_scores_benign_sorted = sorted(threshold_scores_benign)
     threshold_scores_path_sorted = sorted(threshold_scores_path)
     
+
+    legend_order = ["BS3 Very Strong", "BS3 Strong", "-3", "BS3 Moderate", "BS3 Supporting", "IR", "PS3 Supporting", "PS3 Moderate", "+3", "PS3 Strong", "PS3 Very Strong"]
     intervals = []
-    if len(threshold_scores_benign_sorted) >= 2 and len(threshold_scores_path_sorted) >= 3:
-        intervals.append(("BP4_Moderate", x_min, threshold_scores_benign_sorted[0]))
-        intervals.append(("BP4_Supporting", threshold_scores_benign_sorted[0], threshold_scores_benign_sorted[1]))
-        intervals.append(("IR", threshold_scores_benign_sorted[1], threshold_scores_path_sorted[0]))
-        intervals.append(("PP3_Supporting", threshold_scores_path_sorted[0], threshold_scores_path_sorted[1]))
-        intervals.append(("PP3_Moderate", threshold_scores_path_sorted[1], threshold_scores_path_sorted[2]))
-        intervals.append(("+3", threshold_scores_path_sorted[2], x_max))
+    
+    # if len(threshold_scores_benign_sorted) >= 2 and len(threshold_scores_path_sorted) >= 3:
+    for count,i in enumerate(range(len(threshold_scores_benign_sorted)-1, -1, -1)):
+        evidence_code = legend_order[4-len(threshold_scores_benign_sorted)+1+count]
+        intervals.append((evidence_code, threshold_scores_benign_sorted[i-1] if i > 0 else x_min,threshold_scores_benign_sorted[i]))
+        # used_strengths.add(evidence_code)
+    intervals = intervals[::-1]
+    intervals.append(("IR", threshold_scores_benign_sorted[-1], threshold_scores_path_sorted[0]))
+    # used_strengths.add("IR")
+    for i in range(len(threshold_scores_path_sorted)):
+        evidence_code = legend_order[6+i]
+        intervals.append((evidence_code, threshold_scores_path_sorted[i],threshold_scores_path_sorted[i+1] if i < len(threshold_scores_path_sorted)-1 else x_max))
+        # used_strengths.add(evidence_code)
     
     for name, start, end in intervals:
         ax_zeiberg.axvspan(start, end, color=strength_color[name], alpha=0.9)
@@ -1305,12 +1385,8 @@ def plot_scoreset_final_pillar_project(dataset, scoreset, indv_summary, fits, sc
     ax_zeiberg.tick_params(axis='x', labelsize=10)
     ax_zeiberg.set_title('Zeiberg et al. (2025)', loc='left', pad=3, fontsize=11, style='italic')
     
-    # Legend for strength colors - ordered from benign to pathogenic
-    # Define the desired order
-    legend_order = ["BP4_Strong", "BP4_Moderate", "BP4_Supporting", "IR", "PP3_Supporting", "PP3_Moderate", "+3", "PP3_Strong"]
-    
     # Collect all used strength names
-    used_strengths = {"BP4_Strong", "IR", "PP3_Strong"}  # Scott always uses these
+    used_strengths = {"BS3 Strong", "IR", "PS3 Strong"}  # Scott always uses these
     for name, _, _ in intervals:
         used_strengths.add(name)
     
@@ -1328,7 +1404,7 @@ def plot_scoreset_final_pillar_project(dataset, scoreset, indv_summary, fits, sc
     return fig
 
 
-def plot_scoreset_final_pillar_project_v2(dataset, scoreset, indv_summary, fits, score_range, config, n_c, n_samples, relax=False, flipped=False, debug=False):
+def plot_scoreset_final_pillar_project_v2(dataset, scoreset_2018, scoreset, indv_summary, fits, score_range, config, n_c, n_samples, relax=False, flipped=False, debug=False):
     """
     Combined plot with:
     - Top row: Individual sample fits (one per column) showing mixture components
@@ -1360,17 +1436,17 @@ def plot_scoreset_final_pillar_project_v2(dataset, scoreset, indv_summary, fits,
     
     # Strength colors for calibration bars
     strength_color = {
-        "BP4_Very Strong": "#4b91a6",
-        "BP4_Strong": "#7ab5d1",
+        "BS3 Very Strong": "#4b91a6",
+        "BS3 Strong": "#7ab5d1",
         "-3": "#99c8dc",
-        "BP4_Moderate": "#d0e8f0",
-        "BP4_Supporting": "#e4f1f6",
+        "BS3 Moderate": "#d0e8f0",
+        "BS3 Supporting": "#e4f1f6",
         "IR": "#e0e0e0",
-        "PP3_Supporting": "#e6b1b8",
-        "PP3_Moderate": "#d68f99",
+        "PS3 Supporting": "#e6b1b8",
+        "PS3 Moderate": "#d68f99",
         "+3": "#ca7682",
-        "PP3_Strong": "#b85c6b",
-        "PP3_Very Strong": "#943744"
+        "PS3 Strong": "#b85c6b",
+        "PS3 Very Strong": "#943744"
     }
     
     # Create figure with GridSpec
@@ -1394,7 +1470,7 @@ def plot_scoreset_final_pillar_project_v2(dataset, scoreset, indv_summary, fits,
     leg_ax.axis('off')
     
     # Add row title for top row
-    fig.text(0.5, 0.902, 'Model Fits', ha='center', va='top', fontsize=14, fontweight='bold')
+    fig.text(0.5, 0.902, 'Model Fits (2018 ClinVar)', ha='center', va='top', fontsize=14, fontweight='bold')
     
     # Get score ranges for x-axis limits
     all_scores = scoreset.snv_scores
@@ -1432,12 +1508,12 @@ def plot_scoreset_final_pillar_project_v2(dataset, scoreset, indv_summary, fits,
     # ===== TOP ROW: Individual fits with components =====
     for sample_num in range(n_samples):
         ax = ax_fits[sample_num]
-        sample_mask = scoreset.sample_assignments[:, sample_num]
-        sample_name = scoreset.sample_names[sample_num]
+        sample_mask = scoreset_2018.sample_assignments[:, sample_num]
+        sample_name = scoreset_2018.sample_names[sample_num]
         color = sample_colors[sample_num]
         alpha = sample_alphas[sample_num]
         
-        hist_data = scoreset.scores[sample_mask]
+        hist_data = scoreset_2018.scores[sample_mask]
         n_count = sample_mask.sum()
         
         # Plot histogram for this sample - full visibility for all
@@ -1522,7 +1598,7 @@ def plot_scoreset_final_pillar_project_v2(dataset, scoreset, indv_summary, fits,
     ax_hist.set_xlim(x_min, x_max)
     ax_hist.set_xlabel('')
     ax_hist.set_ylabel('Density', fontsize=12)
-    ax_hist.set_title(f'{dataset.split("_")[0]} Functional Score', fontsize=14, fontweight='bold')
+    ax_hist.set_title(f'{dataset.split("_")[0]} Functional Score (2025 ClinVar)', fontsize=14, fontweight='bold')
     ax_hist.tick_params(axis='both', labelsize=10)
     
     # Sample legend (upper left)
@@ -1537,9 +1613,9 @@ def plot_scoreset_final_pillar_project_v2(dataset, scoreset, indv_summary, fits,
     )
     
     # ===== THIRD ROW: Scott et al. calibration =====
-    ax_scott.axvspan(x_min, 0, color=strength_color['BP4_Strong'], alpha=0.9)
+    ax_scott.axvspan(x_min, 0, color=strength_color['BS3 Strong'], alpha=0.9)
     ax_scott.axvspan(0, 0.4, color=strength_color['IR'], alpha=0.9)
-    ax_scott.axvspan(0.4, x_max, color=strength_color['PP3_Strong'], alpha=0.9)
+    ax_scott.axvspan(0.4, x_max, color=strength_color['PS3 Strong'], alpha=0.9)
     
     count_below_0 = (all_scores < 0).sum()
     count_0_to_04 = ((all_scores >= 0) & (all_scores < 0.4)).sum()
@@ -1559,14 +1635,22 @@ def plot_scoreset_final_pillar_project_v2(dataset, scoreset, indv_summary, fits,
     threshold_scores_benign_sorted = sorted(threshold_scores_benign)
     threshold_scores_path_sorted = sorted(threshold_scores_path)
     
+    legend_order = ["BS3 Very Strong", "BS3 Strong", "-3", "BS3 Moderate", "BS3 Supporting", "IR", "PS3 Supporting", "PS3 Moderate", "+3", "PS3 Strong", "PS3 Very Strong"]
     intervals = []
-    if len(threshold_scores_benign_sorted) >= 2 and len(threshold_scores_path_sorted) >= 3:
-        intervals.append(("BP4_Moderate", x_min, threshold_scores_benign_sorted[0]))
-        intervals.append(("BP4_Supporting", threshold_scores_benign_sorted[0], threshold_scores_benign_sorted[1]))
-        intervals.append(("IR", threshold_scores_benign_sorted[1], threshold_scores_path_sorted[0]))
-        intervals.append(("PP3_Supporting", threshold_scores_path_sorted[0], threshold_scores_path_sorted[1]))
-        intervals.append(("PP3_Moderate", threshold_scores_path_sorted[1], threshold_scores_path_sorted[2]))
-        intervals.append(("+3", threshold_scores_path_sorted[2], x_max))
+    used_strengths = {"BS3 Strong", "IR", "PS3 Strong"}
+    
+    # if len(threshold_scores_benign_sorted) >= 2 and len(threshold_scores_path_sorted) >= 3:
+    for count,i in enumerate(range(len(threshold_scores_benign_sorted)-1, -1, -1)):
+        evidence_code = legend_order[4-len(threshold_scores_benign_sorted)+1+count]
+        intervals.append((evidence_code, threshold_scores_benign_sorted[i-1] if i > 0 else x_min,threshold_scores_benign_sorted[i]))
+        # used_strengths.add(evidence_code)
+    intervals = intervals[::-1]
+    intervals.append(("IR", threshold_scores_benign_sorted[-1], threshold_scores_path_sorted[0]))
+    # used_strengths.add("IR")
+    for i in range(len(threshold_scores_path_sorted)):
+        evidence_code = legend_order[6+i]
+        intervals.append((evidence_code, threshold_scores_path_sorted[i],threshold_scores_path_sorted[i+1] if i < len(threshold_scores_path_sorted)-1 else x_max))
+        # used_strengths.add(evidence_code)
     
     for name, start, end in intervals:
         ax_zeiberg.axvspan(start, end, color=strength_color[name], alpha=0.9)
@@ -1586,10 +1670,7 @@ def plot_scoreset_final_pillar_project_v2(dataset, scoreset, indv_summary, fits,
     ax_zeiberg.tick_params(axis='x', labelsize=10)
     ax_zeiberg.set_title('Zeiberg et al. (2025)', loc='left', pad=3, fontsize=14, style='italic')
     
-    # ===== BOTTOM: Strength legend =====
-    legend_order = ["BP4_Strong", "BP4_Moderate", "BP4_Supporting", "IR", "PP3_Supporting", "PP3_Moderate", "+3", "PP3_Strong"]
     
-    used_strengths = {"BP4_Strong", "IR", "PP3_Strong"}
     for name, _, _ in intervals:
         used_strengths.add(name)
     

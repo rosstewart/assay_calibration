@@ -17,7 +17,7 @@ def enforce_monotonicity_point_ranges(point_ranges, point_values, score_range, s
 
     
     if liberal:
-        print('enforcing monotonicity in points (liberal)...',file=log_f)
+        print('enforcing monotonicity in points...',file=log_f)
         for i in point_values:
             point = i # pathogenic
             if len(point_ranges[point]) != 0:

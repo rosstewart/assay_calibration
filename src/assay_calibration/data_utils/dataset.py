@@ -53,52 +53,64 @@ def _clean_clinsigs(values):
 class BasicScoreset:
     def __init__(self, scores: np.ndarray, sample_assignments: np.ndarray,**kwargs):
         self.scores = scores
-        self.sample_assignments = sample_assignments
+        self._sample_assignments = sample_assignments
         self.validate_inputs()
         self.validate_sample_assignments()
+        self.sample_counts = self._sample_assignments.sum(axis=0)
         self.scoreset_name = kwargs.get("scoreset_name", "BasicScoreset")
+        self.sample_names = kwargs.get("sample_names",["Pathogenic/Likely Pathogenic","Benign/Likely Benign","gnomAD","Synonymous"])[:self.n_samples]
 
     def validate_inputs(self):
         n_observations = self.scores.shape[0]
-        if self.sample_assignments.shape[0] != n_observations:
+        if self._sample_assignments.shape[0] != n_observations:
             raise ValueError(
-                f"Number of observations in scores {n_observations:,d} does not match number of rows in sample_assignments {self.sample_assignments.shape[0]:,d}"
+                f"Number of observations in scores {n_observations:,d} does not match number of rows in sample_assignments {self._sample_assignments.shape[0]:,d}"
             )
 
     def validate_sample_assignments(self):
-        ndim = self.sample_assignments.ndim
+        ndim = self._sample_assignments.ndim
         if ndim == 1:
             print(
                 "Assuming sample_assignments is a list of sample identifiers, converting to 2D array."
             )
-            sample_ids = np.array(self.sample_assignments)
+            sample_ids = np.array(self._sample_assignments)
             unique_samples = list(set(sample_ids))
-            self.sample_assignments = np.zeros(
+            self._sample_assignments = np.zeros(
                 (len(sample_ids), len(unique_samples)), dtype=bool
             )
             for sampleNum, sample_id in enumerate(unique_samples):
-                self.sample_assignments[:, sampleNum] = sample_ids == sample_id
+                self._sample_assignments[:, sampleNum] = sample_ids == sample_id
         elif ndim != 2:
             raise ValueError(
                 f"sample_assignments must be a 1D list of sample ids or 2D array of one-hot vectors, got {ndim} dimensions"
             )
 
     @property
+    def sample_assignments(self):
+        return self._sample_assignments[:, self.sample_counts > 0]
+
+    @property
     def n_samples(self):
-        """
-        Return the number of samples in the scoreset.
-        """
-        return self.sample_assignments.shape[1]
+        return self._sample_assignments.shape[1]
 
     @property
     def samples(self):
-        """
-        Iterate over the samples in the scoreset, yielding the sample scores and sample name.
-        """
-        for sample_index in range(self.sample_assignments.shape[1]):
-            sample_scores = self.scores[self.sample_assignments[:, sample_index]]
-            if len(sample_scores) > 0:
-                yield sample_scores, f"Sample {sample_index + 1}"
+        for sample_index in range(self.n_samples):
+            if self.sample_counts[sample_index] > 0:
+                yield self.scores[
+                    self._sample_assignments[:, sample_index]
+                ], self.sample_names[sample_index]
+
+
+    # @property
+    # def samples(self):
+    #     """
+    #     Iterate over the samples in the scoreset, yielding the sample scores and sample name.
+    #     """
+    #     for sample_index in range(self.sample_assignments.shape[1]):
+    #         sample_scores = self.scores[self.sample_assignments[:, sample_index]]
+    #         if len(sample_scores) > 0:
+    #             yield sample_scores, f"Sample {sample_index + 1}"
 
     @classmethod
     def from_csv(cls, csv_path: Path | str, **kwargs):
@@ -363,6 +375,7 @@ class Scoreset:
         for idx, (_id, variants) in enumerate(variants_by_id.items()):
             self._ids.append(_id)
             self._scores[idx] = variants[0].auth_reported_score
+            self._auth_labels.append(variants[0].auth_label)
             if variants[0].is_snv:
                 self._snv_scores.append(variants[0].auth_reported_score)
             
@@ -370,7 +383,6 @@ class Scoreset:
                 self._aa_subs[idx] = variants[0].aa_ref + str(int(variants[0].aa_pos)) + variants[0].aa_alt
             except (ValueError, TypeError):
                 self._aa_subs[idx] = None
-            self._auth_labels.append(variants[0].auth_reported_func_class)
             if any([variant.is_synonymous for variant in variants]):
                 self._sample_assignments[idx, 3] = True
                 continue
@@ -380,12 +392,15 @@ class Scoreset:
                 self._sample_assignments[idx, 0] = True
             if any([variant.is_benign for variant in variants]):
                 self._sample_assignments[idx, 1] = True
+        
         keep_mask = self._sample_assignments.any(axis=1)
+        self._keep_mask = keep_mask
         self._scores = self.scores[keep_mask]
         self._sample_assignments = self._sample_assignments[keep_mask]
         self.n_variants = len(self._scores)
         self.sample_counts = self._sample_assignments.sum(axis=0)
         self._snv_scores = np.array(self._snv_scores)
+        self._auth_labels = np.array(self._auth_labels)
 
     def parse_population_type(self,**kwargs):
         population_type = kwargs.get("population_type",'gnomAD')
@@ -462,8 +477,20 @@ class Scoreset:
         return self._aa_subs
 
     @property
+    def auth_labels(self):
+        return self._auth_labels
+
+    @auth_labels.setter
+    def auth_labels(self, value):
+        self._auth_labels = value
+
+    @property
     def scoreset_name(self):
         return self.dataframe.Dataset.values[0]
+
+    @property
+    def keep_mask(self):
+        return self._keep_mask
 
     def __repr__(self):
         out = f"{self.scoreset_name}: {len(self)} total variants\n"
@@ -498,6 +525,7 @@ class Variant:
         self.parse_clinvar_sig()
         self.parse_consequences()
         self.assign_nsSNV()
+        self.parse_auth_class()
 
     def assign_nsSNV(self):
         # is the variant a nonsynonymous nsSNV
@@ -532,6 +560,10 @@ class Variant:
         self.is_vus = self.sufficient_quality and self.clinvar_sig in {
             "Uncertain significance",
         }
+
+    def parse_auth_class(self):
+        self.auth_label = getattr(self, "StandardizedClass", None) \
+                          or getattr(self, "auth_reported_func_class", None)
 
     def eval_quality(self):
         one_star_status = {

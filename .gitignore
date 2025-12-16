@@ -12,3 +12,4 @@ wheels/
 bard1/
 .vscode/**/.ipynb_checkpoints/
 *.ipynb_checkpoints
+test/

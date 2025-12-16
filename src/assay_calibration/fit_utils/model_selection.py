@@ -46,13 +46,16 @@ def bootstrapped_likelihood_ratio_test(scoreset, N_bootstraps, initial_bootstrap
     mask = sample_assignments.any(1) & (~np.isnan(scores))
     scores = scores[mask]
     sample_assignments = sample_assignments[mask]
+    scoreset_name = scoreset.scoreset_name
+    with open('/data/ross/assay_calibration/val_counts.pkl','rb') as f:
+        val_counts = pickle.load(f)
 
     bootstrap_fits_path = kwargs.get("bootstrap_fits_path", None)
     
     if bootstrap_fits_path is not None:
         # Load pre-computed bootstrap fits
         with gzip.open(bootstrap_fits_path, 'rt') as f:
-            boot_results = json.load(f)[scoreset.scoreset_name]
+            boot_results = json.load(f)[scoreset_name]
         
         results_2c = [boot_results[key]["2c"] for key in boot_results.keys()]
         results_3c = [boot_results[key]["3c"] for key in boot_results.keys()]
@@ -107,6 +110,7 @@ def bootstrapped_likelihood_ratio_test(scoreset, N_bootstraps, initial_bootstrap
             scores[val_indices],
             sample_assignments[val_indices],
         )
+        n_val = len(scores_val)
         
         model_two_comps = fit_iteration(
             scores_train,
@@ -141,7 +145,9 @@ def bootstrapped_likelihood_ratio_test(scoreset, N_bootstraps, initial_bootstrap
         )
     
     # Calculate observed test statistic
-    observed_test_statistic = -2 * (likelihood_two_comp - likelihood_three_comp)
+    observed_test_statistic = -2 * (likelihood_two_comp - likelihood_three_comp) / n_val
+    # observed_test_statistic = -2 * (likelihood_two_comp - likelihood_three_comp)
+    print(f"observed_test_statistic: {observed_test_statistic}")
     sample_sizes = sample_assignments.sum(0)
     
     selection_results = {
@@ -174,6 +180,7 @@ def bootstrapped_likelihood_ratio_test(scoreset, N_bootstraps, initial_bootstrap
         if result is None:
             raise ValueError(f"Bootstrap iteration {i} failed")
         test_statistics[i] = result["test_statistic"]
+        print(f"bootstrap {i} test statistic: {test_statistics[i]}, ll2 {result['likelihood_two_comp']}, ll3 {result['likelihood_three_comp']}")
     
     # Calculate p-value with continuity correction
     p_value = (1 + (test_statistics >= observed_test_statistic).sum()) / (1 + N_bootstraps)
@@ -963,11 +970,13 @@ def run_bootstrap_iter(
         bootstrap_model_k3["component_params"],
         bootstrap_model_k3["weights"],
     )
-
+    
     bootstrap_result = {
-        "test_statistic": -2 * (likelihood_two_comp - likelihood_three_comp),
+        "test_statistic": -2 * (likelihood_two_comp - likelihood_three_comp) / len(scores_val),
         "bootstrapped_model_2_comp": bootstrap_model_k2,
         "bootstrapped_model_3_comp": bootstrap_model_k3,
+        "likelihood_two_comp": likelihood_two_comp,
+        "likelihood_three_comp": likelihood_three_comp,
     }
     return serialize_dict(bootstrap_result)
 
@@ -1028,6 +1037,7 @@ def fit_iteration(
 def generate_scoreset(params, weights, sample_sizes):
     samples = []
     sample_assignments = []
+    weights = np.array(weights)
     assert weights.shape[1] == len(params)
     assert len(sample_sizes) == weights.shape[0]
     n_samples = len(sample_sizes)
