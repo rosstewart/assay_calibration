@@ -11,6 +11,16 @@ wheels/
 # Custom
 bard1/
 .vscode/**/.ipynb_checkpoints/
-*.ipynb_checkpoints
 test/
+
+.DS_Store
+*.swp
+*.swo
+nohup.out
+__pycache__/
+*.pyc
+*.ipynb
 .ipynb_checkpoints/
+*.log
+*.png
+*.pdf
