@@ -1,6 +1,6 @@
 # Assay Calibration Pipeline
 
-A production-ready pipeline for calibrating functional assays using bootstrap skew normal mixture model fitting and Bayesian calibration.
+A pipeline for calibrating functional assays using bootstrap skew normal mixture model fitting and Bayesian calibration.
 
 ## Overview
 
