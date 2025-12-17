@@ -859,6 +859,35 @@ class MulticomponentCalibrationModel:
         return False
 
     @staticmethod
+    # def parameters_violate_monotonicity(params_i, params_j,score_min,score_max) -> bool:
+    #     """
+    #     Check whether the density ratio of component i to component j is monotonic.
+
+    #     Parameters
+    #     ----------
+    #     - params_i : List[float]
+    #         Component parameters for component i (skewness, loc, scale).
+
+    #     - params_j : List[float]
+    #         Component parameters for component j (skewness, loc, scale).
+
+    #     - score_min : float | int
+    #         Minimum score to consider when checking for monotonicity.
+
+    #     - score_max : float | int
+    #         Maximum score to consider when checking for monotonicity.
+
+    #     Returns
+    #     -------
+    #     bool
+    #         True if the density ratio of component i to component j is non-monotonic, False otherwise.
+    #     """
+    #     score_range = np.linspace(score_min, score_max, 1000)
+    #     log_density_i = skewnorm.logpdf(score_range, *params_i)
+    #     log_density_j = skewnorm.logpdf(score_range, *params_j)
+    #     log_density_ratio = log_density_i - log_density_j
+    #     return not (np.diff(log_density_ratio) <= 0).all()
+    
     def parameters_violate_monotonicity(params_i, params_j,score_min,score_max) -> bool:
         """
         Check whether the density ratio of component i to component j is monotonic.
@@ -885,7 +914,10 @@ class MulticomponentCalibrationModel:
         score_range = np.linspace(score_min, score_max, 1000)
         log_density_i = skewnorm.logpdf(score_range, *params_i)
         log_density_j = skewnorm.logpdf(score_range, *params_j)
-        log_density_ratio = log_density_i - log_density_j
+        ix = np.logical_and(log_density_j >-7.0, log_density_i > -7.0)
+        log_density_ratio = log_density_i[ix] - log_density_j[ix]
+        if len(log_density_ratio) < 2:
+            return False
         return not (np.diff(log_density_ratio) <= 0).all()
 
     def _groupValues(self, vals):
