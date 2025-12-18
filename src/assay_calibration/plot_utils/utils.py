@@ -594,8 +594,13 @@ def plot_scoreset_best_config(dataset, scoreset, indv_summary, fits, score_range
         ax_lr.grid(linewidth=0.5, alpha=0.3)
     
     plt.tight_layout()
-    if scoreset.sample_counts[1] == 0 and scoreset.sample_counts[3] != 0:
-        config = str(config).replace("(benign)","(synonymous)")
+    
+    if len(scoreset.sample_counts) > 3 and scoreset.sample_counts[1] == 0 and scoreset.sample_counts[3] != 0:
+        config = str(config).replace("(benign)","(synonymous)" if scoreset.sample_counts[0] != 0 else "(NU)")
+    elif scoreset.sample_counts[1] == 0:
+        config = str(config).replace("(benign)","(PU)").replace("(avg)","(PU)").replace("(synonymous)","(PU)")
+    elif scoreset.sample_counts[0] == 0:
+        config = str(config).replace("(benign)","(NU)").replace("(avg)","(NU)").replace("(synonymous)","(NU)")
         
     fig.suptitle(f"{dataset} - {n_c}{relax_code} {config}", fontsize=16, y=0.998)
     
@@ -603,8 +608,6 @@ def plot_scoreset_best_config(dataset, scoreset, indv_summary, fits, score_range
 
 
 def plot_scores_only(dataset, scoreset):
-
-    
     n_samples = len([s for s in scoreset.samples])
     score_range = [min(scoreset.scores), max(scoreset.scores)]
     
@@ -614,26 +617,34 @@ def plot_scores_only(dataset, scoreset):
 
     
     # ===== Row 0: Sample fits =====
-    for sample_num in range(n_samples):
-        ax_fit = ax[0, sample_num]
+    num_skipped = 0
+    for sample_num in range(len(scoreset.sample_counts)):
+        if scoreset.sample_counts[sample_num] == 0:
+            num_skipped += 1
+            continue
+        ax_fit = ax[0, sample_num-num_skipped]
         
-        sns.histplot(scoreset.scores[scoreset.sample_assignments[:,sample_num]], 
-                     stat='density', ax=ax_fit, alpha=.5, color='pink')
+        # Get sample mask
+        sample_mask = scoreset.sample_assignments[:,sample_num-num_skipped]
+        
+        # Plot based on sample number (which category)
+        if sample_num == 0:  # P/LP
+            sns.histplot(scoreset.scores[sample_mask], 
+                         stat='density', ax=ax_fit, alpha=0.6, color='#CA7682')
+        elif sample_num == 1:  # B/LB
+            sns.histplot(scoreset.scores[sample_mask], 
+                         stat='density', ax=ax_fit, alpha=0.6, color='#1D7AAB')
+        elif sample_num == 2:  # gnomAD
+            sns.histplot(scoreset.scores[sample_mask], 
+                         stat='density', ax=ax_fit, alpha=0.3, color='#A0A0A0')
+        elif sample_num == 3:  # Synonymous
+            sns.histplot(scoreset.scores[sample_mask], 
+                         stat='density', ax=ax_fit, alpha=0.5, color='#6BAA75')
+    
+        max_hist_density = max([patch.get_height() for patch in ax_fit.patches]) if ax_fit.patches else 1.0
 
-        max_hist_density = max([patch.get_height() for patch in ax_fit.patches])
         
-        # density = sample_density(score_range, fits, sample_num)
-        # for compNum in range(density.shape[1]):
-        #     compDensity = density[:,compNum,:]
-        #     d = np.nanpercentile(compDensity,[5,50,95],axis=0)
-        #     ax_fit.plot(score_range, d[1], color=f"C{compNum}", linestyle='--', label=f"Comp {compNum+1}")
-        # ax_fit.legend(fontsize=8)
-        
-        # d = np.nansum(density, axis=1)
-        # d_perc = np.percentile(d, [5,50,95], axis=0)
-        # ax_fit.plot(score_range, d_perc[1], color='black', alpha=.5)
-        # ax_fit.fill_between(score_range, d_perc[0], d_perc[2], color='gray', alpha=0.3)
-        ax_fit.set_title(f"{scoreset.sample_names[sample_num]}\n(n={scoreset.sample_assignments[:,sample_num].sum():,d})")
+        ax_fit.set_title(f"{scoreset.sample_names[sample_num].replace('population','gnomAD')}\n(n={scoreset.sample_assignments[:,sample_num-num_skipped].sum():,d})")
         ax_fit.set_xlabel("Score")
         ax_fit.set_ylabel("Density")
         ax_fit.set_ylim([0, max_hist_density * 1.1])

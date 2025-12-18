@@ -20,7 +20,8 @@ from ..fit_utils.point_ranges import (
     get_bootstrap_score_ranges,
     remove_insufficient_bootstrap_converage_points,
     check_thresholds_reached,
-    extend_points_to_xlims
+    extend_points_to_xlims,
+    compute_single_fit_log_densities
 )
 from ..data_utils.dataset import Scoreset, BasicScoreset
 from ..fit_utils.utils import serialize_dict
@@ -96,7 +97,7 @@ def generate_visualizations(
                 config=f"({config.benign_method})",
                 n_c=component_key,
                 n_samples=len([s for s in scoreset.samples]),
-                relax=False,  # TODO: Add relax option to config
+                relax=False,
                 flipped=calibration.get('scoreset_flipped', False)
             )
             
@@ -121,7 +122,7 @@ def process_component_fits(
     This is the core calibration logic adapted from the notebooks
     """
     
-    # Identify sample indices
+    # Identify sample indices - MORE FLEXIBLE DETECTION
     pathogenic_idx, benign_idx, gnomad_idx, synonymous_idx = None, None, None, None
     
     for i, sample_name in enumerate(scoreset.sample_names):
@@ -136,13 +137,17 @@ def process_component_fits(
             gnomad_idx = i
         elif sample_name == "Synonymous":
             synonymous_idx = i
+        else:
+            raise ValueError(f"Invalid sample name: {sample_name}")
     
-    if pathogenic_idx is None or gnomad_idx is None:
-        raise ValueError("Missing required samples (Pathogenic or gnomAD)")
+    # More flexible validation - allow missing pathogenic OR missing benign/synonymous
+    if gnomad_idx is None:
+        raise ValueError("Missing required gnomAD/population sample")
     
-    if benign_idx is None and synonymous_idx is None:
-        raise ValueError("Missing benign reference (Benign or Synonymous)")
-
+    if pathogenic_idx is None and benign_idx is None and synonymous_idx is None:
+        raise ValueError("Must have at least pathogenic OR (benign/synonymous)")
+    
+    # Adjust benign_method based on available samples
     if synonymous_idx is None and (config.benign_method == 'avg' or config.benign_method == 'synonymous'):
         logger.warning(f"  No synonymous sample, setting benign_method from {config.benign_method} to benign")
         config.benign_method = 'benign'
@@ -153,14 +158,31 @@ def process_component_fits(
     # Adjust indices if benign is missing
     if benign_idx is None:
         gnomad_idx -= 1
-        synonymous_idx -= 1
+        if synonymous_idx is not None:
+            synonymous_idx -= 1
     
-    # Compute priors
+    # Adjust indices if pathogenic is missing
+    if pathogenic_idx is None:
+        gnomad_idx -= 1
+        if benign_idx is not None:
+            benign_idx -= 1
+        if synonymous_idx is not None:
+            synonymous_idx -= 1
+    
+    logger.info(f"  Sample indices: P={pathogenic_idx}, B={benign_idx}, G={gnomad_idx}, S={synonymous_idx}")
+    
+    # Compute priors - PASS ALL INDICES
     if not config.use_2c_equation or n_c != 2:
         # Use EM estimation
         n_cores = os.cpu_count() or 1
         fit_priors = np.array(Parallel(n_jobs=min(len(fits), n_cores), verbose=0)(
-            delayed(get_fit_prior)(fit, scoreset, config.benign_method)
+            delayed(get_fit_prior)(
+                fit, scoreset, config.benign_method,
+                pathogenic_idx=pathogenic_idx,
+                benign_idx=benign_idx,
+                gnomad_idx=gnomad_idx,
+                synonymous_idx=synonymous_idx
+            )
             for fit in fits
         ))
     else:
@@ -170,10 +192,14 @@ def process_component_fits(
             weights = fit['fit']['weights']
             
             if len(weights) == 3:
-                w_p = weights[pathogenic_idx]
+                w_p = weights[pathogenic_idx] if pathogenic_idx is not None else None
                 w_g = weights[gnomad_idx]
-                w_b = weights[benign_idx if benign_idx is not None else synonymous_idx]
-                w_s = w_b
+                if benign_idx is not None:
+                    w_b = weights[benign_idx]
+                    w_s = w_b
+                else:
+                    w_b = weights[synonymous_idx]
+                    w_s = w_b
             elif len(weights) == 4:
                 w_p, w_b, w_g, w_s = weights
             else:
@@ -198,51 +224,32 @@ def process_component_fits(
     
     # Compute prior
     prior = np.nanmedian(fit_priors)
+    logger.info(f"  Prior: {prior:.6f}")
     
     # Setup score range
     observed_scores = scoreset.scores[scoreset._sample_assignments.any(1)]
     score_range = np.linspace(*np.percentile(observed_scores, [0, 100]), 10000)
     
-    # Compute log likelihood ratios
-    _log_fp = np.stack([
-        density_utils.mixture_pdf(
-            score_range,
-            fit['fit']['component_params'],
-            fit['fit']['weights'][pathogenic_idx]
+    # Compute log likelihood ratios - USE NEW PARALLEL FUNCTION
+    n_cores = os.cpu_count() or 1
+    results_fpfb = Parallel(n_jobs=min(len(fits), n_cores), verbose=0)(
+        delayed(compute_single_fit_log_densities)(
+            fit, prior, score_range, config.benign_method,
+            pathogenic_idx=pathogenic_idx,
+            benign_idx=benign_idx,
+            gnomad_idx=gnomad_idx,
+            synonymous_idx=synonymous_idx
         )
-        for fit in fits
-    ])
+        for fit, prior in zip(fits, fit_priors)
+    )
     
-    # Determine benign index
-    if config.benign_method == "synonymous" and synonymous_idx is not None:
-        benign_idx = synonymous_idx
-    
-    if config.benign_method != 'avg' or benign_idx is None:
-        if benign_idx is None:
-            benign_idx = synonymous_idx
-        
-        _log_fb = np.stack([
-            density_utils.mixture_pdf(
-                score_range,
-                fit['fit']['component_params'],
-                fit['fit']['weights'][benign_idx]
-            )
-            for fit in fits
-        ])
-    else:
-        # Average benign and synonymous
-        _log_fb = np.stack([
-            density_utils.mixture_pdf(
-                score_range,
-                fit['fit']['component_params'],
-                (np.array(fit['fit']['weights'][benign_idx]) + 
-                 np.array(fit['fit']['weights'][synonymous_idx])) / 2
-            )
-            for fit in fits
-        ])
+    # Unpack results
+    _log_fp = np.array([r[0] if r[0] is not None else np.full(len(score_range), np.nan) 
+                        for r in results_fpfb])
+    _log_fb = np.array([r[1] if r[1] is not None else np.full(len(score_range), np.nan) 
+                        for r in results_fpfb])
     
     # Get bootstrap score ranges
-    n_cores = os.cpu_count() or 1
     results = Parallel(n_jobs=min(len(fits), n_cores), verbose=0)(
         delayed(get_bootstrap_score_ranges)(
             fitIdx, fit, fp, fb, score_range, fit_priors, config.point_values
@@ -268,40 +275,35 @@ def process_component_fits(
     # Compute C range
     C = np.array([np.nanpercentile(Cs, 5), np.nanpercentile(Cs, 95)])
     
-    # Detect if scoreset is flipped
-    # if config.benign_method != 'avg':
-    #     _isflipped = [
-    #         fit["fit"]["weights"][0][0] < fit["fit"]["weights"][1][0] or
-    #         fit["fit"]["weights"][0][-1] > fit["fit"]["weights"][1][-1]
-    #         for fit in fits
-    #     ]
-    # else:
-    #     _isflipped = [
-    #         fit["fit"]["weights"][0][0] < (np.array(fit['fit']['weights'][1][0]) + 
-    #                                       np.array(fit['fit']['weights'][3][0])) / 2 or
-    #         fit["fit"]["weights"][0][-1] > (np.array(fit['fit']['weights'][1][-1]) +
-    #                                        np.array(fit['fit']['weights'][3][-1])) / 2
-    #         for fit in fits
-    #     ]
-
-    benign_method = config.benign_method
+    # Detect if scoreset is flipped - USE MEAN SCORES INSTEAD OF WEIGHTS
     scoreset_flipped = False
-    path_mean_score = np.mean(scoreset.scores[scoreset._sample_assignments[:,pathogenic_idx]])
-    if benign_method == 'benign':
-        ben_mean_score = np.mean(scoreset.scores[scoreset._sample_assignments[:,benign_idx]])
-    elif benign_method == 'synonymous':
-        ben_mean_score = np.mean(scoreset.scores[scoreset._sample_assignments[:,synonymous_idx]])
-    elif benign_method == 'avg':
-        ben_mean_score = (np.mean(scoreset.scores[scoreset._sample_assignments[:,benign_idx]])+np.mean(scoreset.scores[scoreset._sample_assignments[:,synonymous_idx]]))/2
-        # _isflipped = [_fit["fit"]["weights"][0][0] < _fit["fit"]["weights"][1][0] or _fit["fit"]["weights"][0][-1] > _fit["fit"]["weights"][1][-1] for _fit in fits] # P 1st weight < B 1st weight or P last weight > B last weight. `or` is for 3c weird cases
+    
+    if pathogenic_idx is not None:
+        path_mean_score = np.mean(scoreset.scores[scoreset._sample_assignments[:, pathogenic_idx]])
     else:
-        raise ValueError("invalid benign_method")
-
+        path_mean_score = np.mean(scoreset.scores[scoreset._sample_assignments[:, gnomad_idx]])
+    
+    if benign_idx is not None or synonymous_idx is not None:
+        if config.benign_method == 'avg' and benign_idx is not None and synonymous_idx is not None:
+            ben_mean_score = (
+                np.mean(scoreset.scores[scoreset._sample_assignments[:, benign_idx]]) +
+                np.mean(scoreset.scores[scoreset._sample_assignments[:, synonymous_idx]])
+            ) / 2
+        elif config.benign_method == 'synonymous' and synonymous_idx is not None:
+            ben_mean_score = np.mean(scoreset.scores[scoreset._sample_assignments[:, synonymous_idx]])
+        else:
+            ben_mean_score = (
+                np.mean(scoreset.scores[scoreset._sample_assignments[:, benign_idx]])
+                if benign_idx is not None
+                else np.mean(scoreset.scores[scoreset._sample_assignments[:, synonymous_idx]])
+            )
+    else:
+        ben_mean_score = np.mean(scoreset.scores[scoreset._sample_assignments[:, gnomad_idx]])
+    
     if path_mean_score > ben_mean_score:
         scoreset_flipped = True
-        # _isflipped = [_fit["fit"]["weights"][0][0] < (np.array(_fit['fit']['weights'][1][0])+np.array(_fit['fit']['weights'][3][0]))/2 or _fit["fit"]["weights"][0][-1] > (np.array(_fit['fit']['weights'][1][-1])+np.array(_fit['fit']['weights'][3][-1]))/2 for _fit in fits]
-    # if np.sum(_isflipped) > len(fits) / 2:
-    #     scoreset_flipped = True
+    
+    logger.info(f"  Scoreset flipped: {scoreset_flipped}")
     
     # Compute point ranges
     nan_counts = np.isnan(log_lr_plus).sum(0)
@@ -309,6 +311,7 @@ def process_component_fits(
     
     if config.use_median_prior:
         # Use median prior for unified thresholds
+        logger.info("  Using median prior for unified thresholds")
         point_ranges_pathogenic, point_ranges_benign, C = calculate_score_ranges(
             np.nanpercentile(log_lr_plus[:, range_subset], 5, axis=0),
             np.nanpercentile(log_lr_plus[:, range_subset], 95, axis=0),
@@ -319,6 +322,7 @@ def process_component_fits(
         point_ranges = {**point_ranges_pathogenic, **point_ranges_benign}
     else:
         # Use 5th percentile conservative thresholds
+        logger.info("  Using 5th percentile conservative thresholds")
         p_xaxis_5percentile_conservative = 5 if not scoreset_flipped else 95
         b_xaxis_5percentile_conservative = 95 if not scoreset_flipped else 5
         
@@ -391,6 +395,8 @@ def process_component_fits(
         score_range[range_subset],
         scoreset_flipped
     )
+    
+    logger.info(f"  Final point ranges computed: {len([k for k, v in point_ranges.items() if v])} non-empty")
     
     # Serialize and return
     return serialize_dict({
